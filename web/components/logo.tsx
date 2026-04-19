@@ -1,0 +1,19 @@
+import type { ReactElement, SVGProps } from "react";
+
+export default function Logo(props: SVGProps<SVGSVGElement>): ReactElement {
+  return (
+    <svg
+      viewBox="49 27 22 32"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      {...props}
+    >
+      <g transform="rotate(12 54 54)">
+        <path d="M50 28 L58 28 L58 54 L50 54 Z" />
+      </g>
+      <path d="M54 50 L70 50 L70 58 L54 58 Z" />
+      <path d="M57.91 54.83 L58.94 50 L54 50 L54 58 L49.06 58 L50.09 53.17 Z" />
+    </svg>
+  );
+}
