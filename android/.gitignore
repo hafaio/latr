@@ -1,0 +1,26 @@
+# Gradle
+*.iml
+.gradle/
+build/
+/app/build/
+
+# Local config
+local.properties
+
+# IDE
+.idea/
+
+# Android
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.hprof
+.kotlin
+
+# Signing keys
+*.jks
+*.keystore
+google-services.json
