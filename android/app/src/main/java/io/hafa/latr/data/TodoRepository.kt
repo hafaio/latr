@@ -19,8 +19,9 @@ class TodoRepository(
     }
 
     suspend fun delete(todo: Todo) {
+        val now = System.currentTimeMillis()
         todoDao.delete(todo)
-        firestoreSync?.deleteTodo(todo.id)
+        firestoreSync?.pushTodo(todo.copy(deleted = true, modifiedAt = now))
     }
 
     suspend fun getExpiredSnoozed(now: String): List<Todo> =
@@ -28,8 +29,10 @@ class TodoRepository(
 
     suspend fun deleteEmptyTodosExcept(exceptId: String) {
         val empties = todoDao.getEmptyTodosExcept(exceptId)
+        if (empties.isEmpty()) return
+        val now = System.currentTimeMillis()
         todoDao.deleteEmptyTodosExcept(exceptId)
-        empties.forEach { firestoreSync?.deleteTodo(it.id) }
+        empties.forEach { firestoreSync?.pushTodo(it.copy(deleted = true, modifiedAt = now)) }
     }
 
     suspend fun getDoneTodos(): List<Todo> =
@@ -37,13 +40,19 @@ class TodoRepository(
 
     suspend fun deleteAllDone() {
         val done = todoDao.getDoneTodos()
+        if (done.isEmpty()) return
+        val now = System.currentTimeMillis()
         todoDao.deleteAllDone()
-        done.forEach { firestoreSync?.deleteTodo(it.id) }
+        done.forEach { firestoreSync?.pushTodo(it.copy(deleted = true, modifiedAt = now)) }
     }
 
-    suspend fun insertAll(todos: List<Todo>) {
-        todoDao.insertAll(todos)
-        todos.forEach { firestoreSync?.pushTodo(it) }
+    suspend fun restoreMany(todos: List<Todo>) {
+        val now = System.currentTimeMillis()
+        for (t in todos) {
+            val restored = t.copy(deleted = false, modifiedAt = now)
+            todoDao.insert(restored)
+            firestoreSync?.pushTodo(restored)
+        }
     }
 
     /**
@@ -52,7 +61,7 @@ class TodoRepository(
      */
     suspend fun onSignedIn() {
         val sync = firestoreSync ?: return
-        sync.uploadAll(todoDao.getAllSnapshot())
+        sync.uploadAll(todoDao)
         sync.startListening(todoDao)
     }
 

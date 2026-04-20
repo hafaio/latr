@@ -9,6 +9,7 @@ export type Todo = {
   serverModifiedAt: number;
   snoozeUntil: string | null;
   pinned: boolean;
+  deleted: boolean;
 };
 
 export const FILTERS = ["ACTIVE", "SNOOZED", "DONE", "ALL"] as const;
@@ -25,6 +26,7 @@ export function newTodo(text = ""): Todo {
     serverModifiedAt: 0,
     snoozeUntil: null,
     pinned: false,
+    deleted: false,
   };
 }
 
@@ -36,6 +38,7 @@ export function toFirestoreFields(t: Todo): Record<string, unknown> {
     state: t.state,
     snoozeUntil: t.snoozeUntil,
     pinned: t.pinned,
+    deleted: t.deleted,
   };
 }
 
@@ -59,6 +62,7 @@ export function fromFirestore(id: string, data: Record<string, unknown>): Todo {
     serverModifiedAt: readServerTimestamp(data.serverModifiedAt, modifiedAt),
     snoozeUntil: typeof data.snoozeUntil === "string" ? data.snoozeUntil : null,
     pinned: data.pinned === true,
+    deleted: data.deleted === true,
   };
 }
 

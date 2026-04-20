@@ -27,19 +27,55 @@ class FirestoreSync(
         todosCollection().document(todo.id).set(todo.toMap(), SetOptions.merge()).await()
     }
 
-    suspend fun deleteTodo(todoId: String) {
+    suspend fun uploadAll(todoDao: TodoDao) {
         if (auth.currentUser == null) return
-        todosCollection().document(todoId).delete().await()
-    }
-
-    suspend fun uploadAll(todos: List<Todo>) {
-        if (auth.currentUser == null || todos.isEmpty()) return
-        val batch = firestore.batch()
-        for (todo in todos) {
-            batch.set(todosCollection().document(todo.id), todo.toMap(), SetOptions.merge())
+        val local = todoDao.getAllSnapshot()
+        val snap = todosCollection().get().await()
+        val remoteById = HashMap<String, Todo>(snap.size())
+        for (doc in snap.documents) {
+            remoteById[doc.id] = Todo.fromMap(doc.id, doc.data ?: emptyMap())
         }
-        batch.commit().await()
-        Log.d(TAG, "Uploaded ${todos.size} local todos to Firestore")
+        val toApply = mutableListOf<Todo>()
+        val toDropLocalIds = mutableListOf<String>()
+        val toPush = mutableListOf<Todo>()
+        val localIds = HashSet<String>(local.size)
+        for (l in local) {
+            localIds.add(l.id)
+            val remote = remoteById[l.id]
+            if (remote == null) {
+                toPush.add(l)
+                continue
+            }
+            if (remote.deleted) {
+                toDropLocalIds.add(l.id)
+                continue
+            }
+            if (l.modifiedAt > remote.modifiedAt) {
+                toPush.add(l)
+            } else {
+                toApply.add(remote)
+            }
+        }
+        for ((id, remote) in remoteById) {
+            if (id in localIds) continue
+            if (remote.deleted) continue
+            toApply.add(remote)
+        }
+        for (id in toDropLocalIds) todoDao.deleteById(id)
+        for (t in toApply) {
+            if (t.id in localIds) todoDao.update(t) else todoDao.insert(t)
+        }
+        if (toPush.isNotEmpty()) {
+            val batch = firestore.batch()
+            for (t in toPush) {
+                batch.set(todosCollection().document(t.id), t.toMap(), SetOptions.merge())
+            }
+            batch.commit().await()
+        }
+        Log.d(
+            TAG,
+            "Sync reconcile: pushed=${toPush.size} applied=${toApply.size} dropped=${toDropLocalIds.size}",
+        )
     }
 
     fun startListening(todoDao: TodoDao) {
@@ -60,15 +96,19 @@ class FirestoreSync(
                             DocumentChange.Type.ADDED,
                             DocumentChange.Type.MODIFIED -> {
                                 val todo = Todo.fromMap(doc.id, doc.data)
-                                val existing = todoDao.getById(doc.id)
-                                if (existing == null) {
-                                    todoDao.insert(todo)
-                                } else if (todo.serverModifiedAt > existing.serverModifiedAt) {
-                                    todoDao.update(todo)
+                                if (todo.deleted) {
+                                    todoDao.deleteById(doc.id)
+                                } else {
+                                    val existing = todoDao.getById(doc.id)
+                                    if (existing == null) {
+                                        todoDao.insert(todo)
+                                    } else if (todo.serverModifiedAt > existing.serverModifiedAt) {
+                                        todoDao.update(todo)
+                                    }
                                 }
                             }
                             DocumentChange.Type.REMOVED -> {
-                                todoDao.getById(doc.id)?.let { todoDao.delete(it) }
+                                todoDao.deleteById(doc.id)
                             }
                         }
                     }

@@ -3,7 +3,6 @@
 import { onAuthStateChanged, type User } from "firebase/auth";
 import {
   collection,
-  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -16,7 +15,6 @@ import { fromFirestore, type Todo, toFirestoreFields } from "./todo";
 
 export type SyncHandle = {
   pushLocal: (todo: Todo) => Promise<void>;
-  removeLocal: (id: string) => Promise<void>;
   uploadAll: (todos: Todo[]) => Promise<void>;
   deleteAllRemote: () => Promise<void>;
   startListening: () => void;
@@ -36,10 +34,6 @@ export function syncPushTodo(todo: Todo): void {
   activeHandle?.pushLocal(todo).catch((e) => console.error("sync push", e));
 }
 
-export async function syncRemoveTodo(id: string): Promise<void> {
-  await activeHandle?.removeLocal(id);
-}
-
 function withServerTimestamp(fields: Record<string, unknown>) {
   return { ...fields, serverModifiedAt: serverTimestamp() };
 }
@@ -49,7 +43,6 @@ export function startSync(cb: SyncCallbacks): SyncHandle {
     cb.onUser(null);
     const noop: SyncHandle = {
       pushLocal: async () => {},
-      removeLocal: async () => {},
       uploadAll: async () => {},
       deleteAllRemote: async () => {},
       startListening: () => {},
@@ -86,9 +79,11 @@ export function startSync(cb: SyncCallbacks): SyncHandle {
           const d = change.doc;
           if (change.type === "removed") {
             remove.push(d.id);
-          } else {
-            add.push(fromFirestore(d.id, d.data() as Record<string, unknown>));
+            continue;
           }
+          const todo = fromFirestore(d.id, d.data() as Record<string, unknown>);
+          if (todo.deleted) remove.push(d.id);
+          else add.push(todo);
         }
         if (add.length) cb.onRemoteApply(add);
         if (remove.length) cb.onRemoteRemove(remove);
@@ -112,21 +107,55 @@ export function startSync(cb: SyncCallbacks): SyncHandle {
         { merge: true },
       );
     },
-    async removeLocal(id) {
-      if (!currentUid) return;
-      await deleteDoc(doc(todosCollection(currentUid), id));
-    },
     async uploadAll(todos) {
-      if (!currentUid || todos.length === 0) return;
-      const batch = writeBatch(db());
-      for (const t of todos) {
-        batch.set(
-          doc(todosCollection(currentUid), t.id),
-          withServerTimestamp(toFirestoreFields(t)),
-          { merge: true },
+      if (!currentUid) return;
+      const uid = currentUid;
+      const snap = await getDocs(todosCollection(uid));
+      const remoteById = new Map<string, Todo>();
+      for (const d of snap.docs) {
+        remoteById.set(
+          d.id,
+          fromFirestore(d.id, d.data() as Record<string, unknown>),
         );
       }
-      await batch.commit();
+      const toApply: Todo[] = [];
+      const toRemove: string[] = [];
+      const toPush: Todo[] = [];
+      for (const local of todos) {
+        const remote = remoteById.get(local.id);
+        if (!remote) {
+          toPush.push(local);
+          continue;
+        }
+        if (remote.deleted) {
+          toRemove.push(local.id);
+          continue;
+        }
+        if (local.modifiedAt > remote.modifiedAt) {
+          toPush.push(local);
+        } else {
+          toApply.push(remote);
+        }
+      }
+      const localIds = new Set(todos.map((t) => t.id));
+      for (const [id, remote] of remoteById) {
+        if (localIds.has(id)) continue;
+        if (remote.deleted) continue;
+        toApply.push(remote);
+      }
+      if (toRemove.length) cb.onRemoteRemove(toRemove);
+      if (toApply.length) cb.onRemoteApply(toApply);
+      if (toPush.length) {
+        const batch = writeBatch(db());
+        for (const t of toPush) {
+          batch.set(
+            doc(todosCollection(uid), t.id),
+            withServerTimestamp(toFirestoreFields(t)),
+            { merge: true },
+          );
+        }
+        await batch.commit();
+      }
     },
     async deleteAllRemote() {
       if (!currentUid) return;

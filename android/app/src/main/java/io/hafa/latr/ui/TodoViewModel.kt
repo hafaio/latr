@@ -138,7 +138,7 @@ class TodoViewModel(
         if (todosToRestore.isNotEmpty()) {
             _lastClearedDoneTodos = emptyList()
             viewModelScope.launch {
-                repository.insertAll(todosToRestore)
+                repository.restoreMany(todosToRestore)
             }
         }
     }

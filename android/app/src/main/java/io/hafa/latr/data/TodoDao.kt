@@ -24,14 +24,14 @@ interface TodoDao {
     @Delete
     suspend fun delete(todo: Todo)
 
+    @Query("DELETE FROM todos WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Query("SELECT * FROM todos WHERE state = 'SNOOZED' AND snoozeUntil < :now")
     suspend fun getExpiredSnoozed(now: String): List<Todo>
 
     @Query("SELECT * FROM todos WHERE text = '' AND id != :exceptId")
     suspend fun getEmptyTodosExcept(exceptId: String): List<Todo>
-
-    @Query("DELETE FROM todos WHERE text = '' AND id != :exceptId")
-    suspend fun deleteEmptyTodosExcept(exceptId: String)
 
     @Query("SELECT * FROM todos WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): Todo?
@@ -41,6 +41,9 @@ interface TodoDao {
 
     @Query("DELETE FROM todos WHERE state = 'DONE'")
     suspend fun deleteAllDone()
+
+    @Query("DELETE FROM todos WHERE text = '' AND id != :exceptId")
+    suspend fun deleteEmptyTodosExcept(exceptId: String)
 
     @Insert
     suspend fun insertAll(todos: List<Todo>)
