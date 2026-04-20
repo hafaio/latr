@@ -18,6 +18,7 @@ data class Todo(
     val state: TodoState = TodoState.ACTIVE,
     val snoozeUntil: String? = null,
     val pinned: Boolean = false,
+    val deleted: Boolean = false,
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "text" to text,
@@ -27,6 +28,7 @@ data class Todo(
         "state" to state.name,
         "snoozeUntil" to snoozeUntil,
         "pinned" to pinned,
+        "deleted" to deleted,
     )
 
     companion object {
@@ -47,6 +49,7 @@ data class Todo(
                 state = (data["state"] as? String)?.let { TodoState.valueOf(it) } ?: TodoState.ACTIVE,
                 snoozeUntil = data["snoozeUntil"] as? String,
                 pinned = data["pinned"] as? Boolean ?: false,
+                deleted = data["deleted"] as? Boolean ?: false,
             )
         }
     }

@@ -2,7 +2,12 @@
 
 import { type FirebaseApp, getApps, initializeApp } from "firebase/app";
 import { type Auth, getAuth } from "firebase/auth";
-import { type Firestore, getFirestore } from "firebase/firestore";
+import {
+  type Firestore,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+} from "firebase/firestore";
 
 // Firebase web config for the `hafaio-latr` project. These values ship in the
 // client bundle by design — security is enforced by Firestore rules
@@ -33,7 +38,17 @@ export function auth(): Auth {
 }
 
 export function db(): Firestore {
-  if (!cachedDb) cachedDb = getFirestore(app());
+  if (cachedDb) return cachedDb;
+  try {
+    cachedDb = initializeFirestore(app(), {
+      localCache: persistentLocalCache(),
+    });
+  } catch (e) {
+    // Firestore was already initialized (e.g. HMR reusing the app instance) —
+    // fall back to the existing handle so we don't crash.
+    console.warn("firestore: reusing existing instance", e);
+    cachedDb = getFirestore(app());
+  }
   return cachedDb;
 }
 

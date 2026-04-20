@@ -10,7 +10,7 @@ import {
   useReducer,
   useRef,
 } from "react";
-import { syncPushTodo, syncRemoveTodo } from "./sync";
+import { syncPushTodo } from "./sync";
 import {
   epochToIso,
   type Filter,
@@ -187,14 +187,21 @@ function reducer(state: State, action: Action): State {
         undoExpiresAt: Date.now() + 5000,
       };
     }
-    case "undoClearAllDone":
+    case "undoClearAllDone": {
       if (!state.lastClearedDone) return state;
+      const now = Date.now();
+      const restored = state.lastClearedDone.map((t) => ({
+        ...t,
+        deleted: false,
+        modifiedAt: now,
+      }));
       return {
         ...state,
-        todos: [...state.lastClearedDone, ...state.todos],
+        todos: [...restored, ...state.todos],
         lastClearedDone: null,
         undoExpiresAt: null,
       };
+    }
     case "expireUndo":
       return { ...state, lastClearedDone: null, undoExpiresAt: null };
     case "unsnoozeExpired": {
@@ -259,11 +266,15 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
   const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevTodosRef = useRef<Todo[]>([]);
+  const suppressTombstonePushRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const todos: Todo[] = raw ? JSON.parse(raw) : [];
+      const parsed: Todo[] = raw ? JSON.parse(raw) : [];
+      const todos = parsed
+        .filter((t) => t.deleted !== true)
+        .map((t) => ({ ...t, deleted: false }));
       dispatch({ type: "hydrate", todos });
     } catch {
       dispatch({ type: "hydrate", todos: [] });
@@ -290,10 +301,13 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       syncPushTodo(t);
     }
     const currIds = new Set(state.todos.map((t) => t.id));
+    const now = Date.now();
     for (const p of prevTodosRef.current) {
       if (currIds.has(p.id)) continue;
-      syncRemoveTodo(p.id);
+      if (suppressTombstonePushRef.current.has(p.id)) continue;
+      syncPushTodo({ ...p, deleted: true, modifiedAt: now });
     }
+    suppressTombstonePushRef.current.clear();
     prevTodosRef.current = state.todos;
   }, [state.hydrated, state.todos]);
 
@@ -382,6 +396,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const removeRemote = useCallback((ids: string[]) => {
+    for (const id of ids) suppressTombstonePushRef.current.add(id);
     dispatch({ type: "removeMany", ids });
   }, []);
 

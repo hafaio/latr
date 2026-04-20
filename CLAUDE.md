@@ -67,6 +67,9 @@ For sign-in to work on the deployed URL, the domain must be on Firebase's Author
 - **Favicon viewBox cropped to `49 27 22 32`.** The clock-hands L reads at 16×16; the full 108×108 Android composition is illegible at that size.
 - **Left icon = primary state flip; right cluster = secondary actions.** Click the left icon on any row to toggle its main state (active↔done, snoozed→active). Right actions fade in on hover and vary by state.
 - **No `.env.local`.** Firebase web-config values ship in the client bundle by design; there is no secret. Inlined in `web/utils/firebase.ts` so a fresh clone builds without env setup.
+- **Tombstones only on the wire, not in local state.** Todos have a `deleted: boolean` field that rides along in Firestore docs so other devices can distinguish tombstones from live docs. Locally (web store + Android Room) we only hold live todos — a delete hard-removes the row and pushes a tombstone to Firestore (`setDoc` with `deleted=true`). Firestore SDK persistence (enabled on web via `persistentLocalCache`, default on Android) guarantees the tombstone push reaches the server once we're signed in and online, so it's safe to drop the local row immediately. Remote tombstones (listener or `uploadAll` reconcile) route through `onRemoteRemove` → hard-delete the local match if any. Undo holds the full `Todo[]` in transient state (`lastClearedDone` on web, `_lastClearedDoneTodos` on Android) and re-inserts on tap with a fresh `modifiedAt` that wins over the tombstone.
+- **`uploadAll` reconcile before `startListening`.** On sign-in we `getDocs` the full collection, diff against local, and route each todo into push / apply / drop-local buckets. Without this, a local todo not on remote would upload (resurrecting tombstones set by other devices while this client was offline); with it, remote tombstones take precedence and the local row is dropped instead.
+- **Echo suppression on web.** The store's sync effect pushes a tombstone for any id that disappears from `state.todos`. When a remote delete arrives and we dispatch `removeMany`, we add the ids to `suppressTombstonePushRef` so the effect skips the tombstone push for that tick — otherwise we'd echo back the remote's delete as our own.
 
 ## Known limitations
 
@@ -74,3 +77,5 @@ For sign-in to work on the deployed URL, the domain must be on Firebase's Author
 - Touch-device hover actions use `@media (hover: none)` to show a trailing menu instead — not fully tested on real iOS/Android browsers.
 - The snooze popover's "Pick a date & time…" uses the native `<input type="datetime-local">`, whose UI varies by browser.
 - On first load the web store hydrates from `localStorage` in a mount effect, so there's a brief frame where the todo list is empty before cache loads.
+- Tombstones accumulate in Firestore forever (no server-side GC). Local state doesn't carry them — the growth is remote-only.
+- Deleting a previously-synced todo while signed out will not push a tombstone. On next sign-in, `uploadAll` reconcile sees the remote doc is live and applies it locally — the delete is lost. Sign in before deleting, or accept the re-appearance.
