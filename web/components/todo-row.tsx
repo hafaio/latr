@@ -37,7 +37,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const [text, setText] = useState(todo.text);
   const [isFocused, setIsFocused] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // While the input is focused, its value is owned by `text` and never
   // overwritten by re-renders from the store. Without this, every snapshot
@@ -112,15 +112,15 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         onClick={primaryToggle}
         aria-label={primaryLabel}
         title={primaryLabel}
-        className="p-2 rounded-lg hover:bg-surface-muted transition-colors"
+        className="p-2 rounded-lg hover:bg-surface-muted transition-colors shrink-0"
       >
         {primaryIcon}
       </button>
 
-      <label className="flex-1 flex items-center min-w-0 cursor-text py-1.5">
-        <input
+      <label className="flex-1 flex min-w-0 cursor-text py-1.5">
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={1}
           value={text}
           onChange={(e) => {
             setText(e.target.value);
@@ -137,13 +137,14 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
             else dropEmpty();
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              (e.currentTarget as HTMLInputElement).blur();
+              (e.currentTarget as HTMLTextAreaElement).blur();
             }
           }}
           className={`
-            flex-1 min-w-0 bg-transparent outline-none text-text
+            flex-1 min-w-0 bg-transparent outline-none text-text resize-none
+            field-sizing-content overflow-hidden leading-snug
             placeholder:text-muted
             ${isDone ? "line-through text-muted" : ""}
           `}
@@ -165,7 +166,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
 
       <div
         className="
-          absolute right-2 top-1/2 -translate-y-1/2
+          absolute right-2 top-1
           flex items-center gap-0.5
           opacity-0 group-hover/row:opacity-100 focus-within:opacity-100
           group-data-[keep-actions=true]/row:opacity-100
