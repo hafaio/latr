@@ -34,8 +34,18 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   } = useTodos();
   const focused = focusId === todo.id;
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [text, setText] = useState(todo.text);
+  const [isFocused, setIsFocused] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // While the input is focused, its value is owned by `text` and never
+  // overwritten by re-renders from the store. Without this, every snapshot
+  // listener tick would re-render the input with a fresh (equal-content)
+  // todo reference and occasionally jump the cursor to the end mid-edit.
+  useEffect(() => {
+    if (!isFocused) setText(todo.text);
+  }, [todo.text, isFocused]);
 
   useLayoutEffect(() => {
     if (focused) {
@@ -111,12 +121,19 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         <input
           ref={inputRef}
           type="text"
-          value={todo.text}
-          onChange={(e) => edit(todo.id, e.target.value)}
-          onFocus={() => setFocus(todo.id)}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            edit(todo.id, e.target.value);
+          }}
+          onFocus={() => {
+            setIsFocused(true);
+            setFocus(todo.id);
+          }}
           onBlur={() => {
+            setIsFocused(false);
             setFocus(null);
-            if (todo.text.trim().length === 0) remove(todo.id);
+            if (text.trim().length === 0) remove(todo.id);
             else dropEmpty();
           }}
           onKeyDown={(e) => {
