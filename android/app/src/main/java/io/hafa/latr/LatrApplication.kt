@@ -2,15 +2,12 @@ package io.hafa.latr
 
 import android.app.Application
 import android.util.Log
-import com.google.firebase.auth.FirebaseAuth
-import io.hafa.latr.data.FirestoreSync
 import io.hafa.latr.data.TodoDatabase
-import io.hafa.latr.data.TodoRepository
+import io.hafa.latr.data.TodoStoreHolder
 import io.hafa.latr.data.UserPreferences
 import io.hafa.latr.ui.auth.AuthManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 class LatrApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob())
@@ -28,30 +25,15 @@ class LatrApplication : Application() {
         AuthManager(this, applicationScope, clientId)
     }
 
-    val repository: TodoRepository by lazy {
-        val sync = try {
-            FirestoreSync(FirebaseAuth.getInstance(), applicationScope)
-        } catch (_: Exception) {
-            null
-        }
-        TodoRepository(todoDao, sync)
+    val storeHolder: TodoStoreHolder by lazy {
+        TodoStoreHolder(todoDao, authManager, applicationScope)
     }
 
     override fun onCreate() {
         super.onCreate()
-        val am = authManager ?: return
-        val repo = repository
-        applicationScope.launch {
-            am.currentUser.collect { user ->
-                if (user != null) {
-                    Log.d(TAG, "Auth state: signed in as ${user.uid}")
-                    repo.onSignedIn()
-                } else {
-                    Log.d(TAG, "Auth state: signed out")
-                    repo.onSignedOut()
-                }
-            }
-        }
+        // Force-initialize the holder so it subscribes to auth-state changes
+        // from app launch, not only when the UI first observes it.
+        storeHolder
     }
 
     private fun getFirebaseWebClientId(): String? = try {

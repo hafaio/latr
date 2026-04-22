@@ -4,21 +4,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.hafa.latr.data.Todo
-import io.hafa.latr.data.TodoRepository
 import io.hafa.latr.data.TodoState
+import io.hafa.latr.data.TodoStoreHolder
 import io.hafa.latr.data.UserPreferences
 import io.hafa.latr.util.LocalDateTimeUtil
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TodoViewModel(
-    private val repository: TodoRepository,
+    private val storeHolder: TodoStoreHolder,
     private val userPreferences: UserPreferences
 ) : ViewModel() {
-    val todos: StateFlow<List<Todo>> = repository.getAllTodos()
+    val todos: StateFlow<List<Todo>> = storeHolder.store
+        .flatMapLatest { it.observeAll() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _focusId = MutableStateFlow<String?>(null)
@@ -56,11 +60,14 @@ class TodoViewModel(
         unsnoozeExpired()
     }
 
+    private fun currentStore() = storeHolder.store.value
+
     fun createTodo() {
         viewModelScope.launch {
-            repository.deleteEmptyTodosExcept("")
+            val store = currentStore()
+            store.deleteEmptyTodosExcept("")
             val todo = Todo()
-            repository.insert(todo)
+            store.insert(todo)
             _fastCreationId.value = todo.id
             _focusId.value = todo.id
         }
@@ -68,28 +75,30 @@ class TodoViewModel(
 
     fun updateTodo(todo: Todo, touchModifiedAt: Boolean = true) {
         viewModelScope.launch {
-            if (touchModifiedAt) {
-                repository.update(todo.copy(modifiedAt = System.currentTimeMillis()))
+            val updated = if (touchModifiedAt) {
+                todo.copy(modifiedAt = System.currentTimeMillis())
             } else {
-                repository.update(todo)
+                todo
             }
+            currentStore().update(updated)
         }
     }
 
     fun deleteTodo(todo: Todo) {
         viewModelScope.launch {
-            repository.delete(todo)
+            currentStore().delete(todo)
         }
     }
 
     fun unsnoozeExpired() {
         viewModelScope.launch {
             val now = LocalDateTimeUtil.now()
-            val expired = repository.getExpiredSnoozed(now)
+            val store = currentStore()
+            val expired = store.getExpiredSnoozed(now)
             for (todo in expired) {
                 val snoozeMillis = todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
                     ?: System.currentTimeMillis()
-                repository.update(todo.copy(state = TodoState.ACTIVE, modifiedAt = snoozeMillis))
+                store.update(todo.copy(state = TodoState.ACTIVE, modifiedAt = snoozeMillis))
             }
         }
     }
@@ -100,7 +109,7 @@ class TodoViewModel(
             _fastCreationId.value = null
         }
         viewModelScope.launch {
-            repository.deleteEmptyTodosExcept(todoId)
+            currentStore().deleteEmptyTodosExcept(todoId)
         }
     }
 
@@ -115,22 +124,22 @@ class TodoViewModel(
         _focusId.value = null
         _fastCreationId.value = null
         viewModelScope.launch {
-            repository.deleteEmptyTodosExcept("")
+            currentStore().deleteEmptyTodosExcept("")
         }
     }
 
     fun clearAllDone() {
         viewModelScope.launch {
-            val doneTodos = repository.getDoneTodos()
-            if (doneTodos.isNotEmpty()) {
-                _lastClearedDoneTodos = doneTodos
-                repository.deleteAllDone()
-            }
+            _lastClearedDoneTodos = currentStore().clearAllDone()
         }
     }
 
-    suspend fun deleteAllRemoteData() {
-        repository.deleteAllRemoteData()
+    fun signOut() {
+        viewModelScope.launch { storeHolder.signOut() }
+    }
+
+    fun deleteAccount() {
+        viewModelScope.launch { storeHolder.deleteAccount() }
     }
 
     fun undoClearAllDone() {
@@ -138,20 +147,20 @@ class TodoViewModel(
         if (todosToRestore.isNotEmpty()) {
             _lastClearedDoneTodos = emptyList()
             viewModelScope.launch {
-                repository.restoreMany(todosToRestore)
+                currentStore().restoreMany(todosToRestore)
             }
         }
     }
 }
 
 class TodoViewModelFactory(
-    private val repository: TodoRepository,
+    private val storeHolder: TodoStoreHolder,
     private val userPreferences: UserPreferences
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TodoViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return TodoViewModel(repository, userPreferences) as T
+            return TodoViewModel(storeHolder, userPreferences) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
