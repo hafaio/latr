@@ -54,7 +54,7 @@ export default function Page(): ReactElement {
       >
         <TopBar search={search} onSearch={setSearch} />
         <MobileFilterBar filter={filter} onFilter={setFilter} />
-        <div className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        <div className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-96 space-y-6">
           <ComposeRow />
           {hydrated ? (
             <TodoList />
