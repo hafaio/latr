@@ -748,7 +748,9 @@ fun TodoItem(
     val currentText by rememberUpdatedState(text)
     val currentOnSnooze by rememberUpdatedState(onSnooze)
 
-    val dismissState = rememberSwipeToDismissBoxState()
+    val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { totalDistance -> totalDistance * 0.4f },
+    )
 
     LaunchedEffect(shouldRequestFocus) {
         if (shouldRequestFocus && !hasFocused) {
