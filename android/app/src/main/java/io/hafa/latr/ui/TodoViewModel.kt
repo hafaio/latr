@@ -134,6 +134,10 @@ class TodoViewModel(
         }
     }
 
+    fun signIn() {
+        viewModelScope.launch { storeHolder.signIn() }
+    }
+
     fun signOut() {
         viewModelScope.launch { storeHolder.signOut() }
     }

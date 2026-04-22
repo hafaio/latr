@@ -306,11 +306,7 @@ fun TodoScreen(
 
     if (showSignInSheet) {
         SignInBottomSheet(
-            onSignIn = {
-                if (authManager != null) {
-                    scope.launch { authManager.signInWithGoogle() }
-                }
-            },
+            onSignIn = { viewModel.signIn() },
             onDismiss = { showSignInSheet = false }
         )
     }
