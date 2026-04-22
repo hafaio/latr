@@ -13,19 +13,17 @@ import kotlinx.coroutines.tasks.await
 /**
  * Owns the single live [TodoStore] and swaps it at the auth boundary.
  *
- * Sign-in (auth-driven): merge any offline edits from Room into Firestore
- * (respecting legacy tombstones), then swap to [FirestoreTodoStore]. Room is
- * not written to again while signed in.
- *
- * Sign-out: the auth listener only swaps the store back to [RoomTodoStore].
- * The Firestore-to-Room copy is done by explicit entry points ([signOut],
- * [deleteAccount]) *before* auth is revoked, because once the user is signed
- * out Firestore rules reject our reads.
+ * The auth listener only swaps stores — it does not merge or snapshot.
+ * Merging (Room → Firestore) and snapshotting (Firestore → Room) happen
+ * exclusively on the explicit user-initiated entry points [signIn],
+ * [signOut], and [deleteAccount]. A plain app-launch-while-signed-in does
+ * no merge: Firestore is already the source of truth, its persistent local
+ * cache fires the first listener tick near-instantly.
  */
 class TodoStoreHolder(
     private val dao: TodoDao,
     private val authManager: AuthManager?,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) {
     private val roomStore = RoomTodoStore(dao)
     private val firestore: FirebaseFirestore? = try {
@@ -42,41 +40,45 @@ class TodoStoreHolder(
     init {
         if (authManager != null && firestore != null) {
             scope.launch {
+                var prevUid: String? = null
                 authManager.currentUser.collect { user ->
-                    if (user != null) onSignedIn(user.uid) else onSignedOut()
+                    val newUid = user?.uid
+                    if (newUid != prevUid) {
+                        if (newUid != null) swapToFirestore(newUid)
+                        else swapToRoom()
+                    }
+                    prevUid = newUid
                 }
             }
         }
     }
 
-    private suspend fun onSignedIn(uid: String) {
+    private fun swapToFirestore(uid: String) {
         val fs = firestore ?: return
-        try {
-            mergeRoomIntoFirestore(uid)
-        } catch (e: Exception) {
-            Log.e(TAG, "sign-in merge failed", e)
-        }
         val store = FirestoreTodoStore(fs, uid)
         currentFirestoreStore = store
         _store.value = store
     }
 
-    private fun onSignedOut() {
+    private fun swapToRoom() {
         currentFirestoreStore = null
         _store.value = roomStore
     }
 
     /**
-     * Copy the current Firestore state into Room. Call while still signed in
-     * — after sign-out the read would be rejected by security rules.
+     * User-initiated sign-in: push any offline Room edits into Firestore
+     * (respecting legacy tombstones from older clients), then let the auth
+     * state change swap the live store. If auth is already signed in the
+     * merge runs against the current user.
      */
-    private suspend fun snapshotFirestoreIntoRoom() {
-        val leaving = currentFirestoreStore ?: return
+    suspend fun signIn() {
+        val am = authManager ?: return
+        val result = am.signInWithGoogle()
+        val user = result.getOrNull() ?: return
         try {
-            val remote = leaving.snapshot()
-            dao.replaceAll(remote)
+            mergeRoomIntoFirestore(user.uid)
         } catch (e: Exception) {
-            Log.e(TAG, "snapshot-to-room failed", e)
+            Log.e(TAG, "sign-in merge failed", e)
         }
     }
 
@@ -98,6 +100,20 @@ class TodoStoreHolder(
         snapshotFirestoreIntoRoom()
         currentFirestoreStore?.deleteAll()
         authManager?.deleteCurrentUser()
+    }
+
+    /**
+     * Copy the current Firestore state into Room. Call while still signed in
+     * — after sign-out the read would be rejected by security rules.
+     */
+    private suspend fun snapshotFirestoreIntoRoom() {
+        val leaving = currentFirestoreStore ?: return
+        try {
+            val remote = leaving.snapshot()
+            dao.replaceAll(remote)
+        } catch (e: Exception) {
+            Log.e(TAG, "snapshot-to-room failed", e)
+        }
     }
 
     /**
