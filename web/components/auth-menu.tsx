@@ -2,56 +2,41 @@
 
 import {
   GoogleAuthProvider,
+  onAuthStateChanged,
   signInWithPopup,
-  signOut,
   type User,
 } from "firebase/auth";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { type ReactElement, useEffect, useState } from "react";
 import { FaGoogle, FaSignOutAlt, FaTrashAlt, FaUser } from "react-icons/fa";
 import { auth, firebaseConfigured } from "../utils/firebase";
 import { useTodos } from "../utils/store";
-import { type SyncHandle, startSync } from "../utils/sync";
-
-let syncHandle: SyncHandle | null = null;
 
 export default function AuthMenu(): ReactElement {
-  const { todos, applyRemote, removeRemote } = useTodos();
-  const todosRef = useRef(todos);
-  todosRef.current = todos;
+  const { holder } = useTodos();
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
-  const uploadedForUidRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (syncHandle) return;
-    syncHandle = startSync({
-      onUser: (u) => setUser(u),
-      onRemoteApply: (remote) => applyRemote(remote),
-      onRemoteRemove: (ids) => removeRemote(ids),
-    });
-    return () => {
-      syncHandle?.dispose();
-      syncHandle = null;
-    };
-  }, [applyRemote, removeRemote]);
+    if (!firebaseConfigured()) return;
+    return onAuthStateChanged(auth(), setUser);
+  }, []);
 
+  // Reattach Firestore snapshot listener after tab wake / online — covers
+  // WebChannel drops during long idle that would otherwise leave the
+  // listener silent.
   useEffect(() => {
-    if (!user) {
-      uploadedForUidRef.current = null;
-      syncHandle?.stopListening();
-      return;
+    if (!user) return;
+    function wake() {
+      if (document.visibilityState !== "visible") return;
+      holder.reattach();
     }
-    if (uploadedForUidRef.current === user.uid) return;
-    uploadedForUidRef.current = user.uid;
-    (async () => {
-      try {
-        await syncHandle?.uploadAll(todosRef.current);
-      } catch (e) {
-        console.error("uploadAll", e);
-      }
-      syncHandle?.startListening();
-    })();
-  }, [user]);
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [user, holder]);
 
   async function signIn() {
     if (!firebaseConfigured()) {
@@ -70,7 +55,7 @@ export default function AuthMenu(): ReactElement {
 
   async function doSignOut() {
     try {
-      await signOut(auth());
+      await holder.signOut();
     } catch (e) {
       console.error(e);
     }
@@ -86,9 +71,7 @@ export default function AuthMenu(): ReactElement {
     )
       return;
     try {
-      syncHandle?.stopListening();
-      await syncHandle?.deleteAllRemote();
-      await user.delete();
+      await holder.deleteAccount();
     } catch (e) {
       console.error(e);
       alert("Delete failed. You may need to sign in again recently and retry.");

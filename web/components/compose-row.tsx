@@ -6,7 +6,7 @@ import { isEditableTarget } from "../utils/keyboard";
 import { useTodos } from "../utils/store";
 
 export default function ComposeRow(): ReactElement {
-  const { create, edit, setFocus, setFilter } = useTodos();
+  const { create, setFocus, setFilter } = useTodos();
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -27,8 +27,7 @@ export default function ComposeRow(): ReactElement {
       inputRef.current?.blur();
       return;
     }
-    const todo = create();
-    edit(todo.id, text);
+    create(text);
     setFocus(null);
     setFilter("ACTIVE");
     setDraft("");
