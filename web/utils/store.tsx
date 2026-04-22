@@ -9,8 +9,10 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
+  useSyncExternalStore,
 } from "react";
-import { syncPushTodo } from "./sync";
+import { TodoStoreHolder } from "./store-holder";
 import {
   epochToIso,
   type Filter,
@@ -20,11 +22,7 @@ import {
   type TodoState,
 } from "./todo";
 
-const STORAGE_KEY = "latr:todos:v1";
-
-type State = {
-  hydrated: boolean;
-  todos: Todo[];
+type UiState = {
   filter: Filter;
   search: string;
   focusId: string | null;
@@ -32,32 +30,14 @@ type State = {
   undoExpiresAt: number | null;
 };
 
-type Action =
-  | { type: "hydrate"; todos: Todo[] }
-  | { type: "upsertMany"; todos: Todo[] }
-  | { type: "remove"; id: string }
-  | { type: "removeMany"; ids: string[] }
-  | { type: "create"; todo: Todo }
-  | { type: "edit"; id: string; text: string }
-  | {
-      type: "setState";
-      id: string;
-      state: TodoState;
-      snoozeUntil?: string | null;
-    }
-  | { type: "snooze"; id: string; epoch: number }
-  | { type: "clearAllDone" }
-  | { type: "undoClearAllDone" }
-  | { type: "expireUndo" }
-  | { type: "unsnoozeExpired" }
+type UiAction =
   | { type: "setFilter"; filter: Filter }
   | { type: "setSearch"; search: string }
   | { type: "setFocus"; id: string | null }
-  | { type: "dropEmpty" };
+  | { type: "setLastClearedDone"; todos: Todo[] }
+  | { type: "clearLastClearedDone" };
 
-const initial: State = {
-  hydrated: false,
-  todos: [],
+const initialUi: UiState = {
   filter: "ACTIVE",
   search: "",
   focusId: null,
@@ -65,161 +45,8 @@ const initial: State = {
   undoExpiresAt: null,
 };
 
-function mergeRemote(existing: Todo[], incoming: Todo): Todo[] {
-  const ix = existing.findIndex((t) => t.id === incoming.id);
-  if (ix === -1) return [...existing, incoming];
-  if (incoming.serverModifiedAt <= existing[ix].serverModifiedAt) {
-    return existing;
-  }
-  const next = existing.slice();
-  next[ix] = incoming;
-  return next;
-}
-
-function sameClientFields(a: Todo, b: Todo): boolean {
-  return (
-    a.text === b.text &&
-    a.state === b.state &&
-    a.snoozeUntil === b.snoozeUntil &&
-    a.pinned === b.pinned &&
-    a.modifiedAt === b.modifiedAt
-  );
-}
-
-function isEffectivelyActive(t: Todo): boolean {
-  if (t.state === "ACTIVE") return true;
-  return (
-    t.state === "SNOOZED" &&
-    t.snoozeUntil !== null &&
-    isoToEpoch(t.snoozeUntil) <= Date.now()
-  );
-}
-
-function reducer(state: State, action: Action): State {
+function uiReducer(state: UiState, action: UiAction): UiState {
   switch (action.type) {
-    case "hydrate":
-      return { ...state, hydrated: true, todos: action.todos };
-    case "create": {
-      return {
-        ...state,
-        todos: [action.todo, ...state.todos],
-        focusId: action.todo.id,
-        lastClearedDone: null,
-        undoExpiresAt: null,
-      };
-    }
-    case "upsertMany": {
-      let next = state.todos;
-      for (const t of action.todos) next = mergeRemote(next, t);
-      if (next === state.todos) return state;
-      return { ...state, todos: next };
-    }
-    case "remove":
-      return {
-        ...state,
-        todos: state.todos.filter((t) => t.id !== action.id),
-        focusId: state.focusId === action.id ? null : state.focusId,
-      };
-    case "removeMany": {
-      const ids = new Set(action.ids);
-      return {
-        ...state,
-        todos: state.todos.filter((t) => !ids.has(t.id)),
-        focusId: state.focusId && ids.has(state.focusId) ? null : state.focusId,
-      };
-    }
-    case "edit": {
-      const existing = state.todos.find((t) => t.id === action.id);
-      if (!existing || existing.text === action.text) return state;
-      return {
-        ...state,
-        todos: state.todos.map((t) =>
-          t.id === action.id
-            ? {
-                ...t,
-                text: action.text,
-                snoozeUntil: isEffectivelyActive(t) ? null : t.snoozeUntil,
-              }
-            : t,
-        ),
-      };
-    }
-    case "setState":
-      return {
-        ...state,
-        todos: state.todos.map((t) =>
-          t.id === action.id
-            ? {
-                ...t,
-                state: action.state,
-                snoozeUntil:
-                  action.snoozeUntil === undefined
-                    ? action.state === "SNOOZED"
-                      ? t.snoozeUntil
-                      : null
-                    : action.snoozeUntil,
-                modifiedAt: Date.now(),
-              }
-            : t,
-        ),
-      };
-    case "snooze":
-      return {
-        ...state,
-        todos: state.todos.map((t) =>
-          t.id === action.id
-            ? {
-                ...t,
-                state: "SNOOZED",
-                snoozeUntil: epochToIso(action.epoch),
-                modifiedAt: Date.now(),
-              }
-            : t,
-        ),
-      };
-    case "clearAllDone": {
-      const cleared = state.todos.filter((t) => t.state === "DONE");
-      if (cleared.length === 0) return state;
-      return {
-        ...state,
-        todos: state.todos.filter((t) => t.state !== "DONE"),
-        lastClearedDone: cleared,
-        undoExpiresAt: Date.now() + 5000,
-      };
-    }
-    case "undoClearAllDone": {
-      if (!state.lastClearedDone) return state;
-      const now = Date.now();
-      const restored = state.lastClearedDone.map((t) => ({
-        ...t,
-        deleted: false,
-        modifiedAt: now,
-      }));
-      return {
-        ...state,
-        todos: [...restored, ...state.todos],
-        lastClearedDone: null,
-        undoExpiresAt: null,
-      };
-    }
-    case "expireUndo":
-      return { ...state, lastClearedDone: null, undoExpiresAt: null };
-    case "unsnoozeExpired": {
-      const now = Date.now();
-      let changed = false;
-      const next = state.todos.map((t) => {
-        if (t.state !== "SNOOZED" || !t.snoozeUntil) return t;
-        if (isoToEpoch(t.snoozeUntil) > now) return t;
-        changed = true;
-        return {
-          ...t,
-          state: "ACTIVE" as TodoState,
-          modifiedAt: isoToEpoch(t.snoozeUntil),
-        };
-      });
-      if (!changed) return state;
-      return { ...state, todos: next };
-    }
     case "setFilter":
       if (state.filter === action.filter) return state;
       return {
@@ -235,16 +62,24 @@ function reducer(state: State, action: Action): State {
     case "setFocus":
       if (state.focusId === action.id) return state;
       return { ...state, focusId: action.id };
-    case "dropEmpty": {
-      const next = state.todos.filter((t) => t.text.trim().length > 0);
-      if (next.length === state.todos.length) return state;
-      return { ...state, todos: next };
-    }
+    case "setLastClearedDone":
+      return {
+        ...state,
+        lastClearedDone: action.todos,
+        undoExpiresAt: Date.now() + 5000,
+      };
+    case "clearLastClearedDone":
+      if (state.lastClearedDone === null && state.undoExpiresAt === null)
+        return state;
+      return { ...state, lastClearedDone: null, undoExpiresAt: null };
   }
 }
 
-type ContextShape = State & {
-  create: () => Todo;
+type ContextShape = UiState & {
+  todos: Todo[];
+  hydrated: boolean;
+  holder: TodoStoreHolder;
+  create: (text?: string) => Todo;
   edit: (id: string, text: string) => void;
   markDone: (id: string) => void;
   reactivate: (id: string) => void;
@@ -256,153 +91,191 @@ type ContextShape = State & {
   setSearch: (s: string) => void;
   setFocus: (id: string | null) => void;
   dropEmpty: () => void;
-  applyRemote: (todos: Todo[]) => void;
-  removeRemote: (ids: string[]) => void;
 };
 
 const Ctx = createContext<ContextShape | null>(null);
 
+function isEffectivelyActive(t: Todo): boolean {
+  if (t.state === "ACTIVE") return true;
+  return (
+    t.state === "SNOOZED" &&
+    t.snoozeUntil !== null &&
+    isoToEpoch(t.snoozeUntil) <= Date.now()
+  );
+}
+
+const EMPTY_TODOS: Todo[] = [];
+
 export function TodoProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initial);
-  const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevTodosRef = useRef<Todo[]>([]);
-  const suppressTombstonePushRef = useRef<Set<string>>(new Set());
+  const holderRef = useRef<TodoStoreHolder | null>(null);
+  if (holderRef.current === null) holderRef.current = new TodoStoreHolder();
+  const holder = holderRef.current;
+
+  const [hydrated, setHydrated] = useState(false);
+  const [, setTick] = useState(0);
+  const [ui, dispatch] = useReducer(uiReducer, initialUi);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed: Todo[] = raw ? JSON.parse(raw) : [];
-      const todos = parsed
-        .filter((t) => t.deleted !== true)
-        .map((t) => ({ ...t, deleted: false }));
-      dispatch({ type: "hydrate", todos });
-    } catch {
-      dispatch({ type: "hydrate", todos: [] });
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!state.hydrated) return;
-    if (writeTimer.current) clearTimeout(writeTimer.current);
-    writeTimer.current = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.todos));
-    }, 100);
+    holder.hydrate();
+    setHydrated(true);
     return () => {
-      if (writeTimer.current) clearTimeout(writeTimer.current);
+      holder.dispose();
     };
-  }, [state.hydrated, state.todos]);
+  }, [holder]);
 
-  useEffect(() => {
-    if (!state.hydrated) return;
-    const prev = new Map(prevTodosRef.current.map((t) => [t.id, t]));
-    for (const t of state.todos) {
-      const p = prev.get(t.id);
-      if (p && sameClientFields(p, t)) continue;
-      syncPushTodo(t);
-    }
-    const currIds = new Set(state.todos.map((t) => t.id));
-    const now = Date.now();
-    for (const p of prevTodosRef.current) {
-      if (currIds.has(p.id)) continue;
-      if (suppressTombstonePushRef.current.has(p.id)) continue;
-      syncPushTodo({ ...p, deleted: true, modifiedAt: now });
-    }
-    suppressTombstonePushRef.current.clear();
-    prevTodosRef.current = state.todos;
-  }, [state.hydrated, state.todos]);
+  const subscribe = useCallback(
+    (cb: () => void) => holder.subscribe(cb),
+    [holder],
+  );
+  const getSnapshot = useCallback(() => holder.getStore().getTodos(), [holder]);
+  const getServerSnapshot = useCallback(() => EMPTY_TODOS, []);
+  const todos = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
+  // Auto-expire the undo window.
   useEffect(() => {
-    if (!state.undoExpiresAt) return;
-    const delta = state.undoExpiresAt - Date.now();
+    if (!ui.undoExpiresAt) return;
+    const delta = ui.undoExpiresAt - Date.now();
     if (delta <= 0) {
-      dispatch({ type: "expireUndo" });
+      dispatch({ type: "clearLastClearedDone" });
       return;
     }
-    const id = setTimeout(() => dispatch({ type: "expireUndo" }), delta);
+    const id = setTimeout(
+      () => dispatch({ type: "clearLastClearedDone" }),
+      delta,
+    );
     return () => clearTimeout(id);
-  }, [state.undoExpiresAt]);
+  }, [ui.undoExpiresAt]);
 
+  // Unsnooze expired snoozed todos and schedule the next wake.
   useEffect(() => {
-    if (!state.hydrated) return;
+    if (!hydrated) return;
     const now = Date.now();
-    let hasExpired = false;
+    const expired: Todo[] = [];
     let nextExpiry = Number.POSITIVE_INFINITY;
-    for (const t of state.todos) {
+    for (const t of todos) {
       if (t.state !== "SNOOZED" || !t.snoozeUntil) continue;
-      const expiry = isoToEpoch(t.snoozeUntil);
-      if (expiry <= now) hasExpired = true;
-      else if (expiry < nextExpiry) nextExpiry = expiry;
+      const at = isoToEpoch(t.snoozeUntil);
+      if (at <= now) expired.push(t);
+      else if (at < nextExpiry) nextExpiry = at;
     }
-    if (hasExpired) dispatch({ type: "unsnoozeExpired" });
+    if (expired.length > 0) {
+      const store = holder.getStore();
+      for (const t of expired) {
+        void store.update({
+          ...t,
+          state: "ACTIVE" as TodoState,
+          modifiedAt: t.snoozeUntil ? isoToEpoch(t.snoozeUntil) : now,
+        });
+      }
+    }
     if (nextExpiry < Number.POSITIVE_INFINITY) {
       const delay = Math.max(100, nextExpiry - now);
-      const id = setTimeout(() => dispatch({ type: "unsnoozeExpired" }), delay);
+      const id = setTimeout(() => setTick((n) => n + 1), delay);
       return () => clearTimeout(id);
     }
-  }, [state.hydrated, state.todos]);
+  }, [hydrated, todos, holder]);
 
-  const create = useCallback((): Todo => {
-    const todo = newTodo();
-    dispatch({ type: "create", todo });
-    return todo;
-  }, []);
+  const create = useCallback(
+    (text = ""): Todo => {
+      const todo = { ...newTodo(), text };
+      const store = holder.getStore();
+      void store.insert(todo);
+      dispatch({ type: "setFocus", id: todo.id });
+      dispatch({ type: "clearLastClearedDone" });
+      return todo;
+    },
+    [holder],
+  );
 
-  const edit = useCallback((id: string, text: string) => {
-    dispatch({ type: "edit", id, text });
-  }, []);
+  const edit = useCallback(
+    (id: string, text: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing || existing.text === text) return;
+      const updated: Todo = {
+        ...existing,
+        text,
+        snoozeUntil: isEffectivelyActive(existing)
+          ? null
+          : existing.snoozeUntil,
+      };
+      void store.update(updated);
+    },
+    [holder],
+  );
 
-  const markDone = useCallback((id: string) => {
-    dispatch({ type: "setState", id, state: "DONE", snoozeUntil: null });
-  }, []);
+  const markDone = useCallback(
+    (id: string) => setState(holder, id, "DONE", null),
+    [holder],
+  );
 
-  const reactivate = useCallback((id: string) => {
-    dispatch({ type: "setState", id, state: "ACTIVE", snoozeUntil: null });
-  }, []);
+  const reactivate = useCallback(
+    (id: string) => setState(holder, id, "ACTIVE", null),
+    [holder],
+  );
 
-  const snooze = useCallback((id: string, epoch: number) => {
-    dispatch({ type: "snooze", id, epoch });
-  }, []);
+  const snooze = useCallback(
+    (id: string, epoch: number) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      void store.update({
+        ...existing,
+        state: "SNOOZED",
+        snoozeUntil: epochToIso(epoch),
+        modifiedAt: Date.now(),
+      });
+    },
+    [holder],
+  );
 
-  const remove = useCallback((id: string) => {
-    dispatch({ type: "remove", id });
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      void store.delete(existing);
+      dispatch({ type: "setFocus", id: null });
+    },
+    [holder],
+  );
 
   const clearAllDone = useCallback(() => {
-    dispatch({ type: "clearAllDone" });
-  }, []);
+    void (async () => {
+      const cleared = await holder.getStore().clearAllDone();
+      if (cleared.length > 0) {
+        dispatch({ type: "setLastClearedDone", todos: cleared });
+      }
+    })();
+  }, [holder]);
 
   const undoClearAllDone = useCallback(() => {
-    dispatch({ type: "undoClearAllDone" });
-  }, []);
+    const cleared = ui.lastClearedDone;
+    if (!cleared || cleared.length === 0) return;
+    void holder.getStore().restoreMany(cleared);
+    dispatch({ type: "clearLastClearedDone" });
+  }, [holder, ui.lastClearedDone]);
 
   const setFilter = useCallback((f: Filter) => {
     dispatch({ type: "setFilter", filter: f });
   }, []);
-
   const setSearch = useCallback((s: string) => {
     dispatch({ type: "setSearch", search: s });
   }, []);
-
   const setFocus = useCallback((id: string | null) => {
     dispatch({ type: "setFocus", id });
   }, []);
-
   const dropEmpty = useCallback(() => {
-    dispatch({ type: "dropEmpty" });
-  }, []);
-
-  const applyRemote = useCallback((todos: Todo[]) => {
-    dispatch({ type: "upsertMany", todos });
-  }, []);
-
-  const removeRemote = useCallback((ids: string[]) => {
-    for (const id of ids) suppressTombstonePushRef.current.add(id);
-    dispatch({ type: "removeMany", ids });
-  }, []);
+    const focusId = ui.focusId;
+    void holder.getStore().deleteEmptyTodosExcept(focusId ?? "");
+  }, [holder, ui.focusId]);
 
   const value = useMemo<ContextShape>(
     () => ({
-      ...state,
+      ...ui,
+      todos,
+      hydrated,
+      holder,
       create,
       edit,
       markDone,
@@ -415,11 +288,12 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       setSearch,
       setFocus,
       dropEmpty,
-      applyRemote,
-      removeRemote,
     }),
     [
-      state,
+      ui,
+      todos,
+      hydrated,
+      holder,
       create,
       edit,
       markDone,
@@ -432,8 +306,6 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       setSearch,
       setFocus,
       dropEmpty,
-      applyRemote,
-      removeRemote,
     ],
   );
 
@@ -444,4 +316,26 @@ export function useTodos(): ContextShape {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useTodos must be used inside <TodoProvider>");
   return ctx;
+}
+
+function setState(
+  holder: TodoStoreHolder,
+  id: string,
+  state: TodoState,
+  snoozeUntil: string | null | undefined,
+): void {
+  const store = holder.getStore();
+  const existing = store.getTodos().find((t) => t.id === id);
+  if (!existing) return;
+  void store.update({
+    ...existing,
+    state,
+    snoozeUntil:
+      snoozeUntil === undefined
+        ? state === "SNOOZED"
+          ? existing.snoozeUntil
+          : null
+        : snoozeUntil,
+    modifiedAt: Date.now(),
+  });
 }
