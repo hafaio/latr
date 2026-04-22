@@ -320,17 +320,8 @@ fun TodoScreen(
         if (signedIn != null) {
             AccountBottomSheet(
                 authState = signedIn,
-                onSignOut = { authManager?.signOut() },
-                onDeleteAccount = {
-                    if (authManager != null) {
-                        scope.launch {
-                            // Delete remote first (requires still being authed),
-                            // then delete the auth user (auto-signs out).
-                            viewModel.deleteAllRemoteData()
-                            authManager.deleteCurrentUser()
-                        }
-                    }
-                },
+                onSignOut = { viewModel.signOut() },
+                onDeleteAccount = { viewModel.deleteAccount() },
                 onDismiss = { showAccountSheet = false }
             )
         }
@@ -738,14 +729,21 @@ fun TodoItem(
     onCreateNewTodo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var text by remember(todo.id, todo.text) { mutableStateOf(todo.text) }
+    var text by remember(todo.id) { mutableStateOf(todo.text) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     var hasFocused by remember { mutableStateOf(false) }
+    var isFocused by remember { mutableStateOf(false) }
     var originalText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    // Picks up external text changes (e.g. remote edits) only while the field
+    // isn't focused, so the user's in-flight typing is never clobbered.
+    LaunchedEffect(todo.text, isFocused) {
+        if (!isFocused && text != todo.text) text = todo.text
+    }
 
     // Use rememberUpdatedState to avoid stale closures in the swipe callback
     val currentTodo by rememberUpdatedState(todo)
@@ -861,6 +859,7 @@ fun TodoItem(
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
                         .onFocusChanged { focusState ->
+                            isFocused = focusState.isFocused
                             if (focusState.isFocused) {
                                 hasFocused = true
                                 originalText = text

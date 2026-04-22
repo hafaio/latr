@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -47,4 +48,13 @@ interface TodoDao {
 
     @Insert
     suspend fun insertAll(todos: List<Todo>)
+
+    @Query("DELETE FROM todos")
+    suspend fun deleteAll()
+
+    @Transaction
+    suspend fun replaceAll(todos: List<Todo>) {
+        deleteAll()
+        insertAll(todos)
+    }
 }

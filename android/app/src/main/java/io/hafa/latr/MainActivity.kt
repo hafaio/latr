@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
             LatrTheme {
                 val app = application as LatrApplication
                 val viewModel: TodoViewModel = viewModel(
-                    factory = TodoViewModelFactory(app.repository, app.userPreferences)
+                    factory = TodoViewModelFactory(app.storeHolder, app.userPreferences)
                 )
                 TodoScreen(
                     viewModel = viewModel,
