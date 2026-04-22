@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactElement, useEffect } from "react";
+import { type ReactElement, useEffect, useState } from "react";
 import ClearAllDoneBar from "../components/clear-all-done-bar";
 import ComposeRow from "../components/compose-row";
 import Sidebar from "../components/sidebar";
@@ -10,8 +10,19 @@ import { isEditableTarget } from "../utils/keyboard";
 import { useTodos } from "../utils/store";
 import { FILTERS, type Filter } from "../utils/todo";
 
+const SIDEBAR_COLLAPSED_KEY = "latr:sidebar:v1";
+
 export default function Page(): ReactElement {
   const { hydrated, filter, search, setFilter, setSearch } = useTodos();
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  }, [collapsed]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -27,9 +38,20 @@ export default function Page(): ReactElement {
   }, [setFilter]);
 
   return (
-    <div className="flex min-h-dvh">
-      <Sidebar filter={filter} onFilter={setFilter} />
-      <main className="flex-1 flex flex-col min-w-0">
+    <div className="min-h-dvh">
+      <Sidebar
+        filter={filter}
+        onFilter={setFilter}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((v) => !v)}
+      />
+      <main
+        className={`
+          flex flex-col min-h-dvh min-w-0
+          transition-[padding-left] duration-200 ease-out
+          ${collapsed ? "md:pl-14" : "md:pl-56"}
+        `}
+      >
         <TopBar search={search} onSearch={setSearch} />
         <MobileFilterBar filter={filter} onFilter={setFilter} />
         <div className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6">

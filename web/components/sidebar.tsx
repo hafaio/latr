@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactElement, useEffect, useState } from "react";
+import type { ReactElement } from "react";
 import {
   FaAngleLeft,
   FaAngleRight,
@@ -14,8 +14,6 @@ import AuthMenu from "./auth-menu";
 import Logo from "./logo";
 import ThemeButton from "./theme-button";
 
-const COLLAPSED_KEY = "latr:sidebar:v1";
-
 const TABS: { filter: Filter; label: string; icon: ReactElement }[] = [
   { filter: "ACTIVE", label: "Active", icon: <FaRegCircle /> },
   { filter: "SNOOZED", label: "Snoozed", icon: <FaRegClock /> },
@@ -26,29 +24,21 @@ const TABS: { filter: Filter; label: string; icon: ReactElement }[] = [
 export default function Sidebar({
   filter,
   onFilter,
+  collapsed,
+  onToggleCollapsed,
 }: {
   filter: Filter;
   onFilter: (f: Filter) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }): ReactElement {
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(COLLAPSED_KEY);
-    if (stored === "1") setCollapsed(true);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
-  }, [collapsed]);
-
   return (
     <aside
       data-collapsed={collapsed}
       className="
         group/sidebar
         hidden md:flex flex-col
-        shrink-0
-        h-dvh sticky top-0
+        fixed inset-y-0 left-0 z-20
         bg-surface-muted
         transition-[width] duration-200 ease-out
         w-56
@@ -66,7 +56,7 @@ export default function Sidebar({
         </span>
         <button
           type="button"
-          onClick={() => setCollapsed((v) => !v)}
+          onClick={onToggleCollapsed}
           className="p-1.5 rounded-md text-muted hover:bg-surface-hover hover:text-text transition-colors group-data-[collapsed=true]/sidebar:hidden group-data-[collapsed=true]/sidebar:group-hover/sidebar:block"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand" : "Collapse"}
@@ -89,7 +79,9 @@ export default function Sidebar({
                 ${active ? "bg-accent-soft text-accent font-medium" : "text-text hover:bg-surface-hover"}
               `}
             >
-              <span className="w-4 flex-shrink-0 text-sm">{icon}</span>
+              <span className="w-5 h-5 shrink-0 flex items-center justify-center text-base">
+                {icon}
+              </span>
               <span className="truncate group-data-[collapsed=true]/sidebar:group-hover/sidebar:inline group-data-[collapsed=true]/sidebar:hidden">
                 {label}
               </span>
