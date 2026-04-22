@@ -7,10 +7,8 @@ import {
   doc,
   getDocs,
   onSnapshot,
-  query,
   serverTimestamp,
   setDoc,
-  where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
@@ -192,29 +190,39 @@ export class FirestoreTodoStore extends BaseTodoStore {
   }
 
   async insert(todo: Todo): Promise<void> {
+    this.todos = [todo, ...this.todos];
+    this.emit();
     await setDoc(doc(this.col, todo.id), this.withServerTs(todo), {
       merge: true,
     });
   }
 
   async update(todo: Todo): Promise<void> {
+    const idx = this.todos.findIndex((t) => t.id === todo.id);
+    if (idx >= 0) {
+      const next = this.todos.slice();
+      next[idx] = todo;
+      this.todos = next;
+      this.emit();
+    }
     await setDoc(doc(this.col, todo.id), this.withServerTs(todo), {
       merge: true,
     });
   }
 
   async delete(todo: Todo): Promise<void> {
+    this.todos = this.todos.filter((t) => t.id !== todo.id);
+    this.emit();
     await deleteDoc(doc(this.col, todo.id));
   }
 
   async clearAllDone(): Promise<Todo[]> {
-    const snap = await getDocs(query(this.col, where("state", "==", "DONE")));
-    const done = snap.docs
-      .map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>))
-      .filter((t) => !t.deleted);
+    const done = this.todos.filter((t) => t.state === "DONE");
     if (done.length === 0) return [];
+    this.todos = this.todos.filter((t) => t.state !== "DONE");
+    this.emit();
     const batch = writeBatch(db());
-    for (const d of snap.docs) batch.delete(d.ref);
+    for (const t of done) batch.delete(doc(this.col, t.id));
     await batch.commit();
     return done;
   }
@@ -222,22 +230,34 @@ export class FirestoreTodoStore extends BaseTodoStore {
   async restoreMany(todos: Todo[]): Promise<void> {
     if (todos.length === 0) return;
     const now = Date.now();
+    const restored = todos.map(
+      (t): Todo => ({ ...t, modifiedAt: now, deleted: false }),
+    );
+    const existing = new Set(this.todos.map((t) => t.id));
+    const additions = restored.filter((t) => !existing.has(t.id));
+    if (additions.length > 0) {
+      this.todos = [...additions, ...this.todos];
+      this.emit();
+    }
     const batch = writeBatch(db());
-    for (const t of todos) {
-      const restored: Todo = { ...t, modifiedAt: now, deleted: false };
-      batch.set(doc(this.col, t.id), this.withServerTs(restored), {
-        merge: true,
-      });
+    for (const t of restored) {
+      batch.set(doc(this.col, t.id), this.withServerTs(t), { merge: true });
     }
     await batch.commit();
   }
 
   async deleteEmptyTodosExcept(exceptId: string): Promise<void> {
-    const snap = await getDocs(query(this.col, where("text", "==", "")));
-    const toDelete = snap.docs.filter((d) => d.id !== exceptId);
+    const toDelete = this.todos.filter(
+      (t) => t.id !== exceptId && t.text.trim().length === 0,
+    );
     if (toDelete.length === 0) return;
+    const keepIds = new Set(
+      this.todos.filter((t) => !toDelete.includes(t)).map((t) => t.id),
+    );
+    this.todos = this.todos.filter((t) => keepIds.has(t.id));
+    this.emit();
     const batch = writeBatch(db());
-    for (const d of toDelete) batch.delete(d.ref);
+    for (const t of toDelete) batch.delete(doc(this.col, t.id));
     await batch.commit();
   }
 
