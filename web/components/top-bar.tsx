@@ -26,7 +26,13 @@ export default function TopBar({
 
   return (
     <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-4">
+      <div
+        className="
+          max-w-2xl mx-auto px-4 sm:px-6 py-4
+          md:ml-[max(var(--sidebar-reserved),calc((100vw-42rem)/2))]
+          transition-[margin-left] duration-200 ease-out
+        "
+      >
         <label className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-surface-muted focus-within:bg-surface transition-colors">
           <FaSearch className="text-muted shrink-0 text-sm" />
           <input

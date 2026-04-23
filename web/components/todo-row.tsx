@@ -168,6 +168,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         className="
           absolute right-2 top-1
           flex items-center gap-0.5
+          bg-surface-hover rounded-lg
           opacity-0 group-hover/row:opacity-100 focus-within:opacity-100
           group-data-[keep-actions=true]/row:opacity-100
           transition-opacity

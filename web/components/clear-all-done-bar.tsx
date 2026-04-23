@@ -22,7 +22,13 @@ export default function ClearAllDoneBar(): ReactElement | null {
 
   return (
     <div className="sticky bottom-0 bg-bg/90 backdrop-blur">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between text-sm">
+      <div
+        className="
+          max-w-2xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between text-sm
+          md:ml-[max(var(--sidebar-reserved),calc((100vw-42rem)/2))]
+          transition-[margin-left] duration-200 ease-out
+        "
+      >
         {showUndo ? (
           <>
             <span className="text-muted">

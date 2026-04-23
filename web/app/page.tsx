@@ -46,15 +46,22 @@ export default function Page(): ReactElement {
         onToggleCollapsed={() => setCollapsed((v) => !v)}
       />
       <main
-        className={`
-          flex flex-col min-h-dvh min-w-0
-          transition-[padding-left] duration-200 ease-out
-          ${collapsed ? "md:pl-14" : "md:pl-56"}
-        `}
+        style={
+          {
+            "--sidebar-reserved": collapsed ? "3.5rem" : "14rem",
+          } as React.CSSProperties
+        }
+        className="flex flex-col min-h-dvh min-w-0"
       >
         <TopBar search={search} onSearch={setSearch} />
         <MobileFilterBar filter={filter} onFilter={setFilter} />
-        <div className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-96 space-y-6">
+        <div
+          className="
+            flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-96 space-y-6
+            md:ml-[max(var(--sidebar-reserved),calc((100vw-42rem)/2))]
+            transition-[margin-left] duration-200 ease-out
+          "
+        >
           <ComposeRow />
           {hydrated ? (
             <TodoList />
