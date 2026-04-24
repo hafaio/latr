@@ -78,6 +78,7 @@ function uiReducer(state: UiState, action: UiAction): UiState {
 type ContextShape = UiState & {
   todos: Todo[];
   hydrated: boolean;
+  syncing: boolean;
   holder: TodoStoreHolder;
   create: (text?: string) => Todo;
   edit: (id: string, text: string) => void;
@@ -130,6 +131,9 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   const getSnapshot = useCallback(() => holder.getStore().getTodos(), [holder]);
   const getServerSnapshot = useCallback(() => EMPTY_TODOS, []);
   const todos = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const getSyncing = useCallback(() => holder.getStore().isSyncing(), [holder]);
+  const getSyncingServer = useCallback(() => false, []);
+  const syncing = useSyncExternalStore(subscribe, getSyncing, getSyncingServer);
 
   // Auto-expire the undo window.
   useEffect(() => {
@@ -275,6 +279,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       ...ui,
       todos,
       hydrated,
+      syncing,
       holder,
       create,
       edit,
@@ -293,6 +298,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       ui,
       todos,
       hydrated,
+      syncing,
       holder,
       create,
       edit,
