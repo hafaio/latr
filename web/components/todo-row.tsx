@@ -16,10 +16,34 @@ import {
   FaUndo,
 } from "react-icons/fa";
 import { formatSnoozeTime } from "../utils/format";
+import { useModifierHeld } from "../utils/kbd-modifier";
 import { useTodos } from "../utils/store";
 import type { Todo } from "../utils/todo";
 import { isoToEpoch } from "../utils/todo";
 import SnoozeMenu from "./snooze-menu";
+
+function Hint({
+  children,
+  tint,
+}: {
+  children: string;
+  tint?: string;
+}): ReactElement {
+  return (
+    <kbd
+      className={`
+        absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
+        px-1 py-0.5
+        text-[10px] font-sans font-semibold leading-none
+        rounded bg-surface-muted
+        pointer-events-none
+        ${tint ?? ""}
+      `}
+    >
+      {children}
+    </kbd>
+  );
+}
 
 export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const {
@@ -33,9 +57,15 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     dropEmpty,
   } = useTodos();
   const focused = focusId === todo.id;
+  const modifierHeld = useModifierHeld();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [text, setText] = useState(todo.text);
   const [isFocused, setIsFocused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  // Hints follow focus, and fall back to hover when nothing is focused so
+  // you can ⌘-act on whichever row the mouse is over without clicking in.
+  const showHints =
+    modifierHeld && (focused || (focusId === null && isHovered));
   const rowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,6 +76,22 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   useEffect(() => {
     if (!isFocused) setText(todo.text);
   }, [todo.text, isFocused]);
+
+  // Imperatively attach hover listeners so biome's a11y rule doesn't flag
+  // onMouseEnter/Leave props on a non-interactive <div>. Hover state only
+  // drives visual ⌘-hint positioning; no keyboard path depends on it.
+  useEffect(() => {
+    const node = rowRef.current;
+    if (!node) return;
+    const onEnter = () => setIsHovered(true);
+    const onLeave = () => setIsHovered(false);
+    node.addEventListener("mouseenter", onEnter);
+    node.addEventListener("mouseleave", onLeave);
+    return () => {
+      node.removeEventListener("mouseenter", onEnter);
+      node.removeEventListener("mouseleave", onLeave);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (focused) {
@@ -95,6 +141,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   return (
     <div
       ref={rowRef}
+      data-todo-id={todo.id}
       data-keep-actions={snoozeOpen}
       className={`
         group/row
@@ -102,19 +149,23 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         flex items-center gap-1
         px-2 py-1
         rounded-xl
-        hover:bg-surface-hover
+        hover:bg-surface-hover focus-within:bg-surface-hover
         transition-colors
         ${snoozeOpen ? "z-20" : ""}
       `}
     >
       <button
         type="button"
+        data-action="primary"
         onClick={primaryToggle}
         aria-label={primaryLabel}
         title={primaryLabel}
-        className="p-2 rounded-lg hover:bg-surface-muted transition-colors shrink-0"
+        className="relative p-2 rounded-lg hover:bg-surface-muted transition-colors shrink-0"
       >
-        {primaryIcon}
+        <span className={showHints ? "invisible" : undefined}>
+          {primaryIcon}
+        </span>
+        {showHints && <Hint tint="text-done">D</Hint>}
       </button>
 
       <label className="flex-1 flex min-w-0 cursor-text py-1.5">
@@ -155,7 +206,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         <span
           className="
             pr-2 text-xs text-snooze shrink-0 whitespace-nowrap
-            opacity-100 group-hover/row:opacity-0 focus-within:opacity-0
+            opacity-100 group-hover/row:opacity-0 group-focus-within/row:opacity-0
             group-data-[keep-actions=true]/row:opacity-0
             transition-opacity
           "
@@ -169,7 +220,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           absolute right-2 top-1
           flex items-center gap-0.5
           bg-surface-hover rounded-lg
-          opacity-0 group-hover/row:opacity-100 focus-within:opacity-100
+          opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100
           group-data-[keep-actions=true]/row:opacity-100
           transition-opacity
         "
@@ -177,12 +228,14 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         {isActivelySnoozed && (
           <button
             type="button"
+            data-action="unsnooze"
             onClick={() => reactivate(todo.id)}
             aria-label="Unsnooze"
             title="Unsnooze"
-            className="p-2 rounded-lg text-accent hover:bg-surface-muted transition-colors"
+            className="relative p-2 rounded-lg text-accent hover:bg-surface-muted transition-colors"
           >
-            <FaUndo className="text-sm" />
+            <FaUndo className={`text-sm ${showHints ? "invisible" : ""}`} />
+            {showHints && <Hint>U</Hint>}
           </button>
         )}
 
@@ -190,12 +243,16 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           <div className="relative">
             <button
               type="button"
+              data-action="snooze"
               onClick={() => setSnoozeOpen((v) => !v)}
               aria-label={isActivelySnoozed ? "Reschedule snooze" : "Snooze"}
               title={isActivelySnoozed ? "Reschedule" : "Snooze"}
-              className="p-2 rounded-lg text-snooze hover:bg-surface-muted transition-colors"
+              className="relative p-2 rounded-lg text-snooze hover:bg-surface-muted transition-colors"
             >
-              <FaRegClock className="text-sm" />
+              <FaRegClock
+                className={`text-sm ${showHints ? "invisible" : ""}`}
+              />
+              {showHints && <Hint>S</Hint>}
             </button>
             {snoozeOpen && (
               <SnoozeMenu
@@ -211,12 +268,16 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
 
         <button
           type="button"
+          data-action="delete"
           onClick={() => remove(todo.id)}
           aria-label="Delete"
           title="Delete"
-          className="p-2 rounded-lg text-muted hover:text-danger hover:bg-surface-muted transition-colors"
+          className="relative p-2 rounded-lg text-danger hover:bg-surface-muted transition-colors"
         >
-          <FaRegTrashAlt className="text-sm" />
+          <FaRegTrashAlt
+            className={`text-sm ${showHints ? "invisible" : ""}`}
+          />
+          {showHints && <Hint>X</Hint>}
         </button>
       </div>
     </div>
