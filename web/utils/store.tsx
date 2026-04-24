@@ -22,7 +22,7 @@ import {
   type TodoState,
 } from "./todo";
 
-type UiState = {
+export type UiState = {
   filter: Filter;
   search: string;
   focusId: string | null;
@@ -30,14 +30,14 @@ type UiState = {
   undoExpiresAt: number | null;
 };
 
-type UiAction =
+export type UiAction =
   | { type: "setFilter"; filter: Filter }
   | { type: "setSearch"; search: string }
   | { type: "setFocus"; id: string | null }
   | { type: "setLastClearedDone"; todos: Todo[] }
   | { type: "clearLastClearedDone" };
 
-const initialUi: UiState = {
+export const initialUi: UiState = {
   filter: "ACTIVE",
   search: "",
   focusId: null,
@@ -45,7 +45,7 @@ const initialUi: UiState = {
   undoExpiresAt: null,
 };
 
-function uiReducer(state: UiState, action: UiAction): UiState {
+export function uiReducer(state: UiState, action: UiAction): UiState {
   switch (action.type) {
     case "setFilter":
       if (state.filter === action.filter) return state;

@@ -123,11 +123,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-enum class StatusFilter { ACTIVE, SNOOZED, DONE, ALL }
-
-val TAB_ORDER = listOf(StatusFilter.SNOOZED, StatusFilter.ACTIVE, StatusFilter.DONE, StatusFilter.ALL)
-const val DEFAULT_TAB = 1 // ACTIVE
-
 private fun StatusFilter.displayName(): String =
     name.lowercase().replaceFirstChar { it.uppercase() }
 
@@ -323,47 +318,6 @@ fun TodoScreen(
         }
     }
 }
-
-private fun List<Todo>.filterAndSort(filter: StatusFilter, searchQuery: String): List<Todo> =
-    filter { todo ->
-        when (filter) {
-            StatusFilter.ALL -> true
-            StatusFilter.ACTIVE -> todo.state == TodoState.ACTIVE
-            StatusFilter.SNOOZED -> todo.state == TodoState.SNOOZED
-            StatusFilter.DONE -> todo.state == TodoState.DONE
-        }
-    }
-    .sortedBy { todo ->
-        when (filter) {
-            StatusFilter.ACTIVE -> -(todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
-                ?: todo.modifiedAt)
-
-            StatusFilter.SNOOZED -> todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
-                ?: Long.MAX_VALUE
-
-            else -> -todo.modifiedAt
-        }
-    }
-    .let { sorted ->
-        if (searchQuery.isBlank()) {
-            sorted
-        } else {
-            val searchPatterns =
-                searchQuery.split("\\s+".toRegex()).filter { it.isNotBlank() }
-                    .map { "\\b${Regex.escape(it.lowercase())}".toRegex() }
-            sorted
-                .map { todo ->
-                    val todoTextLower = todo.text.lowercase()
-                    val matchCount = searchPatterns.count { pattern ->
-                        pattern.containsMatchIn(todoTextLower)
-                    }
-                    todo to matchCount
-                }
-                .filter { (_, matchCount) -> matchCount > 0 }
-                .sortedByDescending { (_, matchCount) -> matchCount }
-                .map { (todo, _) -> todo }
-        }
-    }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable

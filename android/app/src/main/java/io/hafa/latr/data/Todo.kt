@@ -46,7 +46,9 @@ data class Todo(
                 createdAt = data["createdAt"] as? Long ?: System.currentTimeMillis(),
                 modifiedAt = modifiedAt,
                 serverModifiedAt = serverModifiedAt,
-                state = (data["state"] as? String)?.let { TodoState.valueOf(it) } ?: TodoState.ACTIVE,
+                state = (data["state"] as? String)
+                    ?.let { name -> TodoState.entries.firstOrNull { it.name == name } }
+                    ?: TodoState.ACTIVE,
                 snoozeUntil = data["snoozeUntil"] as? String,
                 pinned = data["pinned"] as? Boolean ?: false,
                 deleted = data["deleted"] as? Boolean ?: false,
