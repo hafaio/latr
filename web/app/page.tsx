@@ -13,7 +13,8 @@ import { FILTERS, type Filter } from "../utils/todo";
 const SIDEBAR_COLLAPSED_KEY = "latr:sidebar:v1";
 
 export default function Page(): ReactElement {
-  const { hydrated, filter, search, setFilter, setSearch } = useTodos();
+  const { hydrated, filter, search, focusId, setFilter, setSearch, setFocus } =
+    useTodos();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -36,6 +37,93 @@ export default function Page(): ReactElement {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [setFilter]);
+
+  useEffect(() => {
+    // ⌘/Ctrl + letter shortcuts on the focused row (fallback: hovered row).
+    // Letters match data-action on TodoRow buttons; missing buttons no-op.
+    // Dispatch on keydown so the browser default (bookmark / save / cut)
+    // is preempted by preventDefault; e.repeat filters OS auto-repeat so
+    // holding the key cascades no further, but a re-press without
+    // releasing ⌘ still fires a fresh keydown with e.repeat=false.
+    const SHORTCUTS: Record<string, string> = {
+      d: "primary",
+      s: "snooze",
+      u: "unsnooze",
+      x: "delete",
+    };
+    function matchShortcut(e: KeyboardEvent): string | null {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return null;
+      return SHORTCUTS[e.key.toLowerCase()] ?? null;
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      const action = matchShortcut(e);
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      const row = focusId
+        ? document.querySelector(`[data-todo-id="${focusId}"]`)
+        : document.querySelector("[data-todo-id]:hover");
+      const btn = row?.querySelector<HTMLButtonElement>(
+        `[data-action="${action}"]`,
+      );
+      btn?.click();
+    }
+    // Capture phase so we run before descendant listeners and before the
+    // browser's default action fires.
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [focusId]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const row = target?.closest<HTMLElement>("[data-todo-id]");
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-todo-id]"),
+      );
+      if (rows.length === 0) return;
+
+      // Not inside a todo row: wake from compose/search into the first/last
+      // row if the current target isn't something that owns arrow keys.
+      if (!row) {
+        if (isEditableTarget(target)) return;
+        const pick = e.key === "ArrowDown" ? rows[0] : rows[rows.length - 1];
+        const id = pick.getAttribute("data-todo-id");
+        if (id) setFocus(id);
+        e.preventDefault();
+        return;
+      }
+
+      // Inside a todo row's textarea: only hand off to row-nav when the
+      // caret has no logical newline in the direction of travel; otherwise
+      // let the browser move the caret within the multi-line textarea.
+      const ta = target as HTMLTextAreaElement;
+      if (ta.tagName !== "TEXTAREA") return;
+      const value = ta.value;
+      if (e.key === "ArrowUp") {
+        const before = value.slice(0, ta.selectionStart ?? 0);
+        if (before.includes("\n")) return;
+      } else {
+        const after = value.slice(ta.selectionEnd ?? value.length);
+        if (after.includes("\n")) return;
+      }
+      const idx = rows.indexOf(row);
+      const nextIdx = e.key === "ArrowUp" ? idx - 1 : idx + 1;
+      if (nextIdx < 0 || nextIdx >= rows.length) return;
+      const id = rows[nextIdx].getAttribute("data-todo-id");
+      if (id) {
+        setFocus(id);
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setFocus]);
 
   return (
     <div className="min-h-dvh">
