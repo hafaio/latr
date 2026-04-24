@@ -1,8 +1,9 @@
 "use client";
 
 import { type ReactElement, useEffect, useRef } from "react";
-import { FaSearch } from "react-icons/fa";
+import { FaSearch, FaSync } from "react-icons/fa";
 import { isEditableTarget } from "../utils/keyboard";
+import { useTodos } from "../utils/store";
 
 export default function TopBar({
   search,
@@ -12,6 +13,7 @@ export default function TopBar({
   onSearch: (s: string) => void;
 }): ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { syncing } = useTodos();
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -51,6 +53,13 @@ export default function TopBar({
             >
               clear
             </button>
+          )}
+          {syncing && (
+            <FaSync
+              className="text-muted shrink-0 text-xs animate-spin"
+              aria-label="Syncing"
+              title="Syncing"
+            />
           )}
         </label>
       </div>
