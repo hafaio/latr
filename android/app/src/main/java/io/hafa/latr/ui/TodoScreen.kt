@@ -732,7 +732,6 @@ fun TodoItem(
     val hapticFeedback = LocalHapticFeedback.current
     var hasFocused by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
-    var originalText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     // Picks up external text changes (e.g. remote edits) only while the field
@@ -850,7 +849,12 @@ fun TodoItem(
                     onValueChange = { newValue ->
                         if (!newValue.contains('\n')) {
                             text = newValue
-                            currentOnUpdate(currentTodo.copy(text = newValue), false)
+                            val edited = if (currentTodo.state == TodoState.ACTIVE) {
+                                currentTodo.copy(text = newValue, snoozeUntil = null)
+                            } else {
+                                currentTodo.copy(text = newValue)
+                            }
+                            currentOnUpdate(edited, false)
                         }
                     },
                     modifier = Modifier
@@ -860,17 +864,8 @@ fun TodoItem(
                             isFocused = focusState.isFocused
                             if (focusState.isFocused) {
                                 hasFocused = true
-                                originalText = text
                                 onFocused(todo.id)
                             } else if (hasFocused) {
-                                if (text != originalText) {
-                                    val updated = if (currentTodo.state == TodoState.ACTIVE) {
-                                        currentTodo.copy(snoozeUntil = null)
-                                    } else {
-                                        currentTodo
-                                    }
-                                    currentOnUpdate(updated, false)
-                                }
                                 onBlurred(todo.id)
                                 if (currentText.isEmpty()) {
                                     currentOnDelete()
