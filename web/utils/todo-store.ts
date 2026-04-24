@@ -18,6 +18,7 @@ const STORAGE_KEY = "latr:todos:v1";
 
 export interface TodoStore {
   getTodos(): Todo[];
+  isSyncing(): boolean;
   subscribe(listener: () => void): () => void;
   insert(todo: Todo): Promise<void>;
   update(todo: Todo): Promise<void>;
@@ -35,6 +36,8 @@ abstract class BaseTodoStore implements TodoStore {
   getTodos(): Todo[] {
     return this.todos;
   }
+
+  abstract isSyncing(): boolean;
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -62,6 +65,10 @@ abstract class BaseTodoStore implements TodoStore {
 
 export class LocalTodoStore extends BaseTodoStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  isSyncing(): boolean {
+    return false;
+  }
 
   /**
    * Read from localStorage. Deliberately not called from the constructor so
@@ -167,11 +174,19 @@ export class LocalTodoStore extends BaseTodoStore {
 export class FirestoreTodoStore extends BaseTodoStore {
   private readonly col: CollectionReference;
   private unsubscribe: (() => void) | null = null;
+  // True until the listener has received a snapshot with a live server
+  // connection. Flips back to true if the stream drops (e.g. tab backgrounded
+  // long enough for the WebChannel to close) until we reconnect.
+  private fromCache = true;
 
   constructor(uid: string) {
     super();
     this.col = collection(db(), "users", uid, "todos");
     this.attach();
+  }
+
+  isSyncing(): boolean {
+    return this.fromCache;
   }
 
   /**
@@ -280,18 +295,26 @@ export class FirestoreTodoStore extends BaseTodoStore {
 
   private attach(): void {
     if (this.unsubscribe) return;
+    this.fromCache = true;
     this.unsubscribe = onSnapshot(
       this.col,
+      // includeMetadataChanges fires the listener when fromCache flips (e.g.
+      // live connection re-established after a backgrounded tab) even if no
+      // doc data changed, so the sync indicator can reflect reconnect state.
+      { includeMetadataChanges: true },
       (snap) => {
         this.todos = snap.docs
           .map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>))
           .filter((t) => !t.deleted);
+        this.fromCache = snap.metadata.fromCache;
         this.emit();
       },
       (err) => {
         console.error("firestore snapshot", err);
         // Clear the handle so reattach can re-subscribe after a stream drop.
         this.unsubscribe = null;
+        this.fromCache = true;
+        this.emit();
       },
     );
   }
