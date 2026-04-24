@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactElement, ReactNode } from "react";
 import ThemeProvider from "../components/theme";
+import { ModifierProvider } from "../utils/kbd-modifier";
 import { TodoProvider } from "../utils/store";
 import "./globals.css";
 
@@ -18,7 +19,9 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <ThemeProvider>
-          <TodoProvider>{children}</TodoProvider>
+          <TodoProvider>
+            <ModifierProvider>{children}</ModifierProvider>
+          </TodoProvider>
         </ThemeProvider>
       </body>
     </html>
