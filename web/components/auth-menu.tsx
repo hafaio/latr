@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithPopup,
-  type User,
-} from "firebase/auth";
+import { onAuthStateChanged, type User } from "firebase/auth";
 import { type ReactElement, useEffect, useState } from "react";
 import { FaGoogle, FaSignOutAlt, FaTrashAlt, FaUser } from "react-icons/fa";
 import { auth, firebaseConfigured } from "../utils/firebase";
@@ -46,8 +41,7 @@ export default function AuthMenu(): ReactElement {
       return;
     }
     try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth(), provider);
+      await holder.signIn();
     } catch (e) {
       console.error(e);
     }

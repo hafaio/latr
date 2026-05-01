@@ -1,6 +1,11 @@
 "use client";
 
-import { onAuthStateChanged, type User } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  type User,
+} from "firebase/auth";
 import {
   collection,
   doc,
@@ -19,15 +24,12 @@ import {
 /**
  * Owns the single live [TodoStore] and swaps it at the auth boundary.
  *
- * Sign-in (auth-driven): merge any offline edits from the local store into
- * Firestore (respecting legacy tombstones), then swap to
- * [FirestoreTodoStore]. The local store is not written to again while
- * signed in.
- *
- * Sign-out: the auth listener only swaps back to [LocalTodoStore]. The
- * Firestore-to-local copy is done by explicit entry points ([signOut],
- * [deleteAccount]) *before* auth is revoked, because once the user is
- * signed out Firestore rules reject our reads.
+ * The auth listener only swaps stores — it does not merge or snapshot.
+ * Merging (local → Firestore) and snapshotting (Firestore → local) happen
+ * exclusively on the explicit user-initiated entry points [signIn],
+ * [signOut], and [deleteAccount]. A plain page-load-while-signed-in does no
+ * merge: Firestore is already the source of truth, its persistent local
+ * cache fires the first listener tick near-instantly.
  */
 export class TodoStoreHolder {
   private localStore = new LocalTodoStore();
@@ -44,8 +46,8 @@ export class TodoStoreHolder {
       this.unsubAuth = onAuthStateChanged(auth(), (u) => {
         const prevUid = this.user?.uid ?? null;
         this.user = u;
-        if (u && u.uid !== prevUid) void this.onSignedIn(u.uid);
-        else if (!u && prevUid !== null) this.onSignedOut();
+        if (u && u.uid !== prevUid) this.swapToFirestore(u.uid);
+        else if (!u && prevUid !== null) this.swapToLocal();
       });
     }
   }
@@ -68,6 +70,25 @@ export class TodoStoreHolder {
 
   hydrate(): void {
     this.localStore.hydrate();
+  }
+
+  /**
+   * User-initiated sign-in: pop the Google flow, then push any offline
+   * local edits into Firestore (respecting legacy tombstones). The auth
+   * listener separately swaps the active store on the resulting auth-state
+   * change. If auth is already signed in (e.g. retry after a partial
+   * sign-in), the merge runs against the current uid.
+   */
+  async signIn(): Promise<void> {
+    if (!firebaseConfigured()) {
+      throw new Error("firebase not configured");
+    }
+    const result = await signInWithPopup(auth(), new GoogleAuthProvider());
+    try {
+      await this.mergeLocalIntoFirestore(result.user.uid);
+    } catch (e) {
+      console.error("sign-in merge failed", e);
+    }
   }
 
   /**
@@ -125,18 +146,13 @@ export class TodoStoreHolder {
     for (const l of this.listeners) l();
   }
 
-  private async onSignedIn(uid: string): Promise<void> {
-    try {
-      await this.mergeLocalIntoFirestore(uid);
-    } catch (e) {
-      console.error("sign-in merge failed", e);
-    }
+  private swapToFirestore(uid: string): void {
     this.firestoreStore?.dispose();
     this.firestoreStore = new FirestoreTodoStore(uid);
     this.setStore(this.firestoreStore);
   }
 
-  private onSignedOut(): void {
+  private swapToLocal(): void {
     this.firestoreStore?.dispose();
     this.firestoreStore = null;
     this.setStore(this.localStore);
