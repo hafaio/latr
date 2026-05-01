@@ -277,7 +277,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           <FaRegTrashAlt
             className={`text-sm ${showHints ? "invisible" : ""}`}
           />
-          {showHints && <Hint>X</Hint>}
+          {showHints && <Hint>⌫</Hint>}
         </button>
       </div>
     </div>
