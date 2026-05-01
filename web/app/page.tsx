@@ -39,17 +39,18 @@ export default function Page(): ReactElement {
   }, [setFilter]);
 
   useEffect(() => {
-    // ⌘/Ctrl + letter shortcuts on the focused row (fallback: hovered row).
-    // Letters match data-action on TodoRow buttons; missing buttons no-op.
-    // Dispatch on keydown so the browser default (bookmark / save / cut)
-    // is preempted by preventDefault; e.repeat filters OS auto-repeat so
+    // ⌘/Ctrl + key shortcuts on the focused row (fallback: hovered row).
+    // Keys match data-action on TodoRow buttons; missing buttons no-op.
+    // Dispatch on keydown so the browser default (bookmark / save) is
+    // preempted by preventDefault; e.repeat filters OS auto-repeat so
     // holding the key cascades no further, but a re-press without
     // releasing ⌘ still fires a fresh keydown with e.repeat=false.
+    // Backspace (not X) is the delete shortcut so ⌘+X stays as cut.
     const SHORTCUTS: Record<string, string> = {
       d: "primary",
       s: "snooze",
       u: "unsnooze",
-      x: "delete",
+      backspace: "delete",
     };
     function matchShortcut(e: KeyboardEvent): string | null {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return null;
