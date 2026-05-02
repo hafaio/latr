@@ -1,5 +1,6 @@
 package io.hafa.latr.data
 
+import android.util.Log
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -17,6 +18,13 @@ import kotlinx.coroutines.tasks.await
  * Legacy tombstone docs (deleted=true, written by older clients) are filtered
  * out on read so the UI never surfaces them. New deletes call deleteDoc
  * directly; Firestore propagates REMOVED to every active listener.
+ *
+ * Writes do **not** await the returned Task: while offline that Task stays
+ * pending until the server acks, which would suspend the coroutine
+ * indefinitely and block subsequent steps in the caller's flow (e.g. setting
+ * focus on a freshly inserted todo). The local cache write fires the
+ * snapshot listener regardless, and persistentLocalCache replays the queued
+ * write to the server once the connection is back. Failures are logged.
  */
 class FirestoreTodoStore(
     private val firestore: FirebaseFirestore,
@@ -46,15 +54,18 @@ class FirestoreTodoStore(
     }
 
     override suspend fun insert(todo: Todo) {
-        collection.document(todo.id).set(todo.toMap(), SetOptions.merge()).await()
+        collection.document(todo.id).set(todo.toMap(), SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG, "insert failed", it) }
     }
 
     override suspend fun update(todo: Todo) {
-        collection.document(todo.id).set(todo.toMap(), SetOptions.merge()).await()
+        collection.document(todo.id).set(todo.toMap(), SetOptions.merge())
+            .addOnFailureListener { Log.w(TAG, "update failed", it) }
     }
 
     override suspend fun delete(todo: Todo) {
-        collection.document(todo.id).delete().await()
+        collection.document(todo.id).delete()
+            .addOnFailureListener { Log.w(TAG, "delete failed", it) }
     }
 
     override suspend fun clearAllDone(): List<Todo> {
@@ -66,7 +77,7 @@ class FirestoreTodoStore(
         if (done.isEmpty()) return emptyList()
         val batch = firestore.batch()
         for (doc in snap.documents) batch.delete(doc.reference)
-        batch.commit().await()
+        batch.commit().addOnFailureListener { Log.w(TAG, "clearAllDone failed", it) }
         return done
     }
 
@@ -78,7 +89,7 @@ class FirestoreTodoStore(
             val restored = t.copy(modifiedAt = now)
             batch.set(collection.document(t.id), restored.toMap(), SetOptions.merge())
         }
-        batch.commit().await()
+        batch.commit().addOnFailureListener { Log.w(TAG, "restoreMany failed", it) }
     }
 
     override suspend fun deleteEmptyTodosExcept(exceptId: String) {
@@ -87,7 +98,9 @@ class FirestoreTodoStore(
         if (toDelete.isEmpty()) return
         val batch = firestore.batch()
         for (doc in toDelete) batch.delete(doc.reference)
-        batch.commit().await()
+        batch.commit().addOnFailureListener {
+            Log.w(TAG, "deleteEmptyTodosExcept failed", it)
+        }
     }
 
     override suspend fun getExpiredSnoozed(nowIso: String): List<Todo> {
@@ -108,5 +121,9 @@ class FirestoreTodoStore(
         val batch = firestore.batch()
         for (doc in snap.documents) batch.delete(doc.reference)
         batch.commit().await()
+    }
+
+    companion object {
+        private const val TAG = "FirestoreTodoStore"
     }
 }
