@@ -11,6 +11,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
@@ -97,7 +99,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
@@ -146,6 +152,9 @@ private fun StatusFilter.iconTint() = when (this) {
  * Horizontal-drag handler that flips the active filter by paging
  * [pagerState]. Each invocation gets its own remembered drag-start page so
  * multiple call sites (bottom bar, list area) don't share state.
+ *
+ * Drags that begin within [EDGE_REJECT_DP] of either horizontal edge are
+ * ignored so the OS back-gesture wins in that strip.
  */
 @Composable
 private fun Modifier.filterSwipe(
@@ -153,28 +162,44 @@ private fun Modifier.filterSwipe(
     scope: CoroutineScope
 ): Modifier {
     var dragStartPage by remember { mutableIntStateOf(0) }
-    return this.draggable(
-        state = rememberDraggableState { delta ->
-            scope.launch { pagerState.scrollBy(-delta * 1.5f) }
-        },
-        orientation = Orientation.Horizontal,
-        onDragStarted = { dragStartPage = pagerState.currentPage },
-        onDragStopped = { velocity ->
-            val target = when {
-                pagerState.currentPage > dragStartPage ->
-                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
-                pagerState.currentPage < dragStartPage ->
-                    (dragStartPage - 1).coerceAtLeast(0)
-                velocity < -800f ->
-                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
-                velocity > 800f ->
-                    (dragStartPage - 1).coerceAtLeast(0)
-                else -> dragStartPage
+    var widthPx by remember { mutableIntStateOf(0) }
+    var rejectGesture by remember { mutableStateOf(false) }
+    val edgePx = with(LocalDensity.current) { EDGE_REJECT_DP.dp.toPx() }
+    return this
+        .onSizeChanged { widthPx = it.width }
+        .draggable(
+            state = rememberDraggableState { delta ->
+                if (!rejectGesture) {
+                    scope.launch { pagerState.scrollBy(-delta * 1.5f) }
+                }
+            },
+            orientation = Orientation.Horizontal,
+            onDragStarted = { startedPosition ->
+                rejectGesture = startedPosition.x < edgePx ||
+                    startedPosition.x > widthPx - edgePx
+                if (!rejectGesture) dragStartPage = pagerState.currentPage
+            },
+            onDragStopped = { velocity ->
+                if (!rejectGesture) {
+                    val target = when {
+                        pagerState.currentPage > dragStartPage ->
+                            (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
+                        pagerState.currentPage < dragStartPage ->
+                            (dragStartPage - 1).coerceAtLeast(0)
+                        velocity < -800f ->
+                            (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
+                        velocity > 800f ->
+                            (dragStartPage - 1).coerceAtLeast(0)
+                        else -> dragStartPage
+                    }
+                    scope.launch { pagerState.animateScrollToPage(target) }
+                }
+                rejectGesture = false
             }
-            scope.launch { pagerState.animateScrollToPage(target) }
-        }
-    )
+        )
 }
+
+private const val EDGE_REJECT_DP = 24
 
 @Composable
 fun FilterIconButton(
@@ -728,7 +753,29 @@ fun TodoItem(
 
     SwipeToDismissBox(
         state = dismissState,
-        modifier = modifier,
+        // Consume pointer events whose down-position is in the screen-edge
+        // strip so the inner anchored-draggable never starts a row dismiss
+        // there. The row stays visually full-width; only the gesture is
+        // gated, leaving room for the OS back gesture to win.
+        modifier = modifier.pointerInput(Unit) {
+            val edgePx = EDGE_REJECT_DP.dp.toPx()
+            awaitEachGesture {
+                val down = awaitFirstDown(
+                    requireUnconsumed = false,
+                    pass = PointerEventPass.Initial
+                )
+                val nearEdge = down.position.x < edgePx ||
+                    down.position.x > size.width - edgePx
+                if (nearEdge) {
+                    down.consume()
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.none { it.pressed }) break
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            }
+        },
         onDismiss = { direction ->
             when (direction to currentTodo.state) {
                 SwipeToDismissBoxValue.EndToStart to TodoState.DONE -> currentOnDelete()
