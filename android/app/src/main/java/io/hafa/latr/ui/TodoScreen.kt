@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -119,6 +120,7 @@ import io.hafa.latr.ui.auth.photoUrl
 import io.hafa.latr.ui.auth.rememberAuthState
 import io.hafa.latr.ui.theme.LatrTheme
 import io.hafa.latr.util.LocalDateTimeUtil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -138,6 +140,40 @@ private fun StatusFilter.iconTint() = when (this) {
     StatusFilter.ALL, StatusFilter.ACTIVE -> MaterialTheme.colorScheme.onSurfaceVariant
     StatusFilter.SNOOZED -> MaterialTheme.colorScheme.tertiary
     StatusFilter.DONE -> MaterialTheme.colorScheme.primary
+}
+
+/**
+ * Horizontal-drag handler that flips the active filter by paging
+ * [pagerState]. Each invocation gets its own remembered drag-start page so
+ * multiple call sites (bottom bar, list area) don't share state.
+ */
+@Composable
+private fun Modifier.filterSwipe(
+    pagerState: PagerState,
+    scope: CoroutineScope
+): Modifier {
+    var dragStartPage by remember { mutableIntStateOf(0) }
+    return this.draggable(
+        state = rememberDraggableState { delta ->
+            scope.launch { pagerState.scrollBy(-delta * 1.5f) }
+        },
+        orientation = Orientation.Horizontal,
+        onDragStarted = { dragStartPage = pagerState.currentPage },
+        onDragStopped = { velocity ->
+            val target = when {
+                pagerState.currentPage > dragStartPage ->
+                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
+                pagerState.currentPage < dragStartPage ->
+                    (dragStartPage - 1).coerceAtLeast(0)
+                velocity < -800f ->
+                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
+                velocity > 800f ->
+                    (dragStartPage - 1).coerceAtLeast(0)
+                else -> dragStartPage
+            }
+            scope.launch { pagerState.animateScrollToPage(target) }
+        }
+    )
 }
 
 @Composable
@@ -441,8 +477,6 @@ fun TodoScreenContent(
             }
     }
 
-    var dragStartPage by remember { mutableIntStateOf(0) }
-
     Scaffold(
         modifier = modifier.imePadding(),
         bottomBar = {
@@ -450,27 +484,7 @@ fun TodoScreenContent(
                 modifier = Modifier
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .draggable(
-                        state = rememberDraggableState { delta ->
-                            scope.launch { pagerState.scrollBy(-delta * 1.5f) }
-                        },
-                        orientation = Orientation.Horizontal,
-                        onDragStarted = { dragStartPage = pagerState.currentPage },
-                        onDragStopped = { velocity ->
-                            val target = when {
-                                pagerState.currentPage > dragStartPage ->
-                                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
-                                pagerState.currentPage < dragStartPage ->
-                                    (dragStartPage - 1).coerceAtLeast(0)
-                                velocity < -800f ->
-                                    (dragStartPage + 1).coerceAtMost(TAB_ORDER.size - 1)
-                                velocity > 800f ->
-                                    (dragStartPage - 1).coerceAtLeast(0)
-                                else -> dragStartPage
-                            }
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                        }
-                    ),
+                    .filterSwipe(pagerState, scope),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -531,6 +545,7 @@ fun TodoScreenContent(
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
                 .statusBarsPadding()
+                .filterSwipe(pagerState, scope)
         ) {
             HorizontalPager(
                 state = pagerState,
