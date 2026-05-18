@@ -53,6 +53,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     reactivate,
     snooze,
     remove,
+    removeUndoable,
     setFocus,
     dropEmpty,
   } = useTodos();
@@ -269,7 +270,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         <button
           type="button"
           data-action="delete"
-          onClick={() => remove(todo.id)}
+          onClick={() => removeUndoable(todo.id)}
           aria-label="Delete"
           title="Delete"
           className="relative p-2 rounded-lg text-danger hover:bg-surface-muted transition-colors"

@@ -21,13 +21,13 @@ describe("uiReducer", () => {
     const primed = {
       ...initialUi,
       focusId: "x",
-      lastClearedDone: [todo("a")],
+      lastDeleted: [todo("a")],
       undoExpiresAt: 1,
     };
     const next = uiReducer(primed, { type: "setFilter", filter: "DONE" });
     expect(next.filter).toBe("DONE");
     expect(next.focusId).toBeNull();
-    expect(next.lastClearedDone).toBeNull();
+    expect(next.lastDeleted).toBeNull();
     expect(next.undoExpiresAt).toBeNull();
   });
 
@@ -48,30 +48,28 @@ describe("uiReducer", () => {
     ).toBe(initialUi);
   });
 
-  test("setLastClearedDone sets a future undoExpiresAt", () => {
+  test("setLastDeleted sets a future undoExpiresAt", () => {
     const before = Date.now();
     const next = uiReducer(initialUi, {
-      type: "setLastClearedDone",
+      type: "setLastDeleted",
       todos: [todo("a")],
     });
-    expect(next.lastClearedDone).toHaveLength(1);
+    expect(next.lastDeleted).toHaveLength(1);
     expect(next.undoExpiresAt ?? 0).toBeGreaterThanOrEqual(before);
   });
 
-  test("clearLastClearedDone is no-op when already cleared", () => {
-    expect(uiReducer(initialUi, { type: "clearLastClearedDone" })).toBe(
-      initialUi,
-    );
+  test("clearLastDeleted is no-op when already cleared", () => {
+    expect(uiReducer(initialUi, { type: "clearLastDeleted" })).toBe(initialUi);
   });
 
-  test("clearLastClearedDone wipes the undo buffer", () => {
+  test("clearLastDeleted wipes the undo buffer", () => {
     const primed = {
       ...initialUi,
-      lastClearedDone: [todo("a")],
+      lastDeleted: [todo("a")],
       undoExpiresAt: 1,
     };
-    const next = uiReducer(primed, { type: "clearLastClearedDone" });
-    expect(next.lastClearedDone).toBeNull();
+    const next = uiReducer(primed, { type: "clearLastDeleted" });
+    expect(next.lastDeleted).toBeNull();
     expect(next.undoExpiresAt).toBeNull();
   });
 });
