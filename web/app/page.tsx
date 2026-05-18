@@ -13,8 +13,17 @@ import { FILTERS, type Filter } from "../utils/todo";
 const SIDEBAR_COLLAPSED_KEY = "latr:sidebar:v1";
 
 export default function Page(): ReactElement {
-  const { hydrated, filter, search, focusId, setFilter, setSearch, setFocus } =
-    useTodos();
+  const {
+    hydrated,
+    filter,
+    search,
+    focusId,
+    lastDeleted,
+    setFilter,
+    setSearch,
+    setFocus,
+    undoLastDelete,
+  } = useTodos();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -77,6 +86,23 @@ export default function Page(): ReactElement {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
     };
   }, [focusId]);
+
+  useEffect(() => {
+    // ⌘/Ctrl+Z restores the last delete while the undo chip is visible.
+    // Captured even inside text inputs so a freshly-deleted row beats the
+    // browser's native undo of an unrelated edit.
+    if (!lastDeleted) return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      e.stopPropagation();
+      undoLastDelete();
+    }
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKey, { capture: true });
+  }, [lastDeleted, undoLastDelete]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
