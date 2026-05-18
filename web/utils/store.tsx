@@ -26,7 +26,7 @@ export type UiState = {
   filter: Filter;
   search: string;
   focusId: string | null;
-  lastClearedDone: Todo[] | null;
+  lastDeleted: Todo[] | null;
   undoExpiresAt: number | null;
 };
 
@@ -34,14 +34,14 @@ export type UiAction =
   | { type: "setFilter"; filter: Filter }
   | { type: "setSearch"; search: string }
   | { type: "setFocus"; id: string | null }
-  | { type: "setLastClearedDone"; todos: Todo[] }
-  | { type: "clearLastClearedDone" };
+  | { type: "setLastDeleted"; todos: Todo[] }
+  | { type: "clearLastDeleted" };
 
 export const initialUi: UiState = {
   filter: "ACTIVE",
   search: "",
   focusId: null,
-  lastClearedDone: null,
+  lastDeleted: null,
   undoExpiresAt: null,
 };
 
@@ -53,7 +53,7 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         ...state,
         filter: action.filter,
         focusId: null,
-        lastClearedDone: null,
+        lastDeleted: null,
         undoExpiresAt: null,
       };
     case "setSearch":
@@ -62,16 +62,16 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
     case "setFocus":
       if (state.focusId === action.id) return state;
       return { ...state, focusId: action.id };
-    case "setLastClearedDone":
+    case "setLastDeleted":
       return {
         ...state,
-        lastClearedDone: action.todos,
+        lastDeleted: action.todos,
         undoExpiresAt: Date.now() + 5000,
       };
-    case "clearLastClearedDone":
-      if (state.lastClearedDone === null && state.undoExpiresAt === null)
+    case "clearLastDeleted":
+      if (state.lastDeleted === null && state.undoExpiresAt === null)
         return state;
-      return { ...state, lastClearedDone: null, undoExpiresAt: null };
+      return { ...state, lastDeleted: null, undoExpiresAt: null };
   }
 }
 
@@ -86,8 +86,9 @@ type ContextShape = UiState & {
   reactivate: (id: string) => void;
   snooze: (id: string, epoch: number) => void;
   remove: (id: string) => void;
+  removeUndoable: (id: string) => void;
   clearAllDone: () => void;
-  undoClearAllDone: () => void;
+  undoLastDelete: () => void;
   setFilter: (f: Filter) => void;
   setSearch: (s: string) => void;
   setFocus: (id: string | null) => void;
@@ -140,13 +141,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     if (!ui.undoExpiresAt) return;
     const delta = ui.undoExpiresAt - Date.now();
     if (delta <= 0) {
-      dispatch({ type: "clearLastClearedDone" });
+      dispatch({ type: "clearLastDeleted" });
       return;
     }
-    const id = setTimeout(
-      () => dispatch({ type: "clearLastClearedDone" }),
-      delta,
-    );
+    const id = setTimeout(() => dispatch({ type: "clearLastDeleted" }), delta);
     return () => clearTimeout(id);
   }, [ui.undoExpiresAt]);
 
@@ -185,7 +183,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       void store.insert(todo);
       dispatch({ type: "setFocus", id: todo.id });
-      dispatch({ type: "clearLastClearedDone" });
+      dispatch({ type: "clearLastDeleted" });
       return todo;
     },
     [holder],
@@ -244,21 +242,33 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     [holder],
   );
 
+  const removeUndoable = useCallback(
+    (id: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      void store.delete(existing);
+      dispatch({ type: "setFocus", id: null });
+      dispatch({ type: "setLastDeleted", todos: [existing] });
+    },
+    [holder],
+  );
+
   const clearAllDone = useCallback(() => {
     void (async () => {
       const cleared = await holder.getStore().clearAllDone();
       if (cleared.length > 0) {
-        dispatch({ type: "setLastClearedDone", todos: cleared });
+        dispatch({ type: "setLastDeleted", todos: cleared });
       }
     })();
   }, [holder]);
 
-  const undoClearAllDone = useCallback(() => {
-    const cleared = ui.lastClearedDone;
+  const undoLastDelete = useCallback(() => {
+    const cleared = ui.lastDeleted;
     if (!cleared || cleared.length === 0) return;
     void holder.getStore().restoreMany(cleared);
-    dispatch({ type: "clearLastClearedDone" });
-  }, [holder, ui.lastClearedDone]);
+    dispatch({ type: "clearLastDeleted" });
+  }, [holder, ui.lastDeleted]);
 
   const setFilter = useCallback((f: Filter) => {
     dispatch({ type: "setFilter", filter: f });
@@ -287,8 +297,9 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       reactivate,
       snooze,
       remove,
+      removeUndoable,
       clearAllDone,
-      undoClearAllDone,
+      undoLastDelete,
       setFilter,
       setSearch,
       setFocus,
@@ -306,8 +317,9 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       reactivate,
       snooze,
       remove,
+      removeUndoable,
       clearAllDone,
-      undoClearAllDone,
+      undoLastDelete,
       setFilter,
       setSearch,
       setFocus,
