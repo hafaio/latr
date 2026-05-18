@@ -21,14 +21,16 @@ Track features and behavior here. When making changes, verify existing behavior 
 - When a todo gains focus, scroll to it first
 - No extra space should appear below the search bar when focusing a todo
 
-### Clear All Done
-- "Clear all done" button appears above the bottom bar when on the Done filter with non-empty list
-- Button has surfaceContainerHigh background
+### Undo Delete
+- "Clear all done" button appears above the bottom bar when on the Done filter with non-empty list (surfaceContainerHigh background)
 - Button is hidden on other filters and when the done list is empty (unless undo is pending)
-- Tapping the button clears focus, deletes all done todos, and shows an inline "Undo" button in place
-- Undo button auto-expires after 5 seconds
+- Tapping it clears focus, deletes all done todos, and shows an inline "Undo" chip in place
+- A single swipe-delete (DONE row swiped end-to-start) also shows the "Undo" chip at the bottom, on any filter
+- The empty-draft blur-cleanup (new todo abandoned without typing) does NOT show the chip — the user never had content to lose
+- Undo chip auto-expires after 5 seconds
 - Undo is cancelled when changing filters or creating a new todo
-- Tapping "Undo" re-inserts all cleared todos
+- Only the most recent delete is undoable; a later delete overwrites the prior undo buffer
+- Tapping "Undo" re-inserts the deleted todo(s) with their original modifiedAt so they land back in their previous sort position (true undo)
 
 ### Sort Order
 - Active: unsnoozed items by snoozeUntil (most recently unsnoozed first), regular items by modifiedAt descending
@@ -67,7 +69,7 @@ For sign-in to work on the deployed URL, the domain must be on Firebase's Author
 - **Favicon viewBox cropped to `49 27 22 32`.** The clock-hands L reads at 16×16; the full 108×108 Android composition is illegible at that size.
 - **Left icon = primary state flip; right cluster = secondary actions.** Click the left icon on any row to toggle its main state (active↔done, snoozed→active). Right actions fade in on hover and vary by state.
 - **No `.env.local`.** Firebase web-config values ship in the client bundle by design; there is no secret. Inlined in `web/utils/firebase.ts` so a fresh clone builds without env setup.
-- **Tombstones only on the wire, not in local state.** Todos have a `deleted: boolean` field that rides along in Firestore docs so other devices can distinguish tombstones from live docs. Locally (web store + Android Room) we only hold live todos — a delete hard-removes the row and pushes a tombstone to Firestore (`setDoc` with `deleted=true`). Firestore SDK persistence (enabled on web via `persistentLocalCache`, default on Android) guarantees the tombstone push reaches the server once we're signed in and online, so it's safe to drop the local row immediately. Remote tombstones (listener or `uploadAll` reconcile) route through `onRemoteRemove` → hard-delete the local match if any. Undo holds the full `Todo[]` in transient state (`lastClearedDone` on web, `_lastClearedDoneTodos` on Android) and re-inserts on tap with a fresh `modifiedAt` that wins over the tombstone.
+- **Tombstones only on the wire, not in local state.** Todos have a `deleted: boolean` field that rides along in Firestore docs so other devices can distinguish tombstones from live docs. Locally (web store + Android Room) we only hold live todos — a delete hard-removes the row and pushes a tombstone to Firestore (`setDoc` with `deleted=true`). Firestore SDK persistence (enabled on web via `persistentLocalCache`, default on Android) guarantees the tombstone push reaches the server once we're signed in and online, so it's safe to drop the local row immediately. Remote tombstones (listener or `uploadAll` reconcile) route through `onRemoteRemove` → hard-delete the local match if any. Undo holds the full `Todo[]` in transient state (`lastDeleted` on web, `_lastDeletedTodos` on Android) and re-inserts on tap preserving the original `modifiedAt` so the restored row lands back in its prior sort position.
 - **`uploadAll` reconcile before `startListening`.** On sign-in we `getDocs` the full collection, diff against local, and route each todo into push / apply / drop-local buckets. Without this, a local todo not on remote would upload (resurrecting tombstones set by other devices while this client was offline); with it, remote tombstones take precedence and the local row is dropped instead.
 - **Echo suppression on web.** The store's sync effect pushes a tombstone for any id that disappears from `state.todos`. When a remote delete arrives and we dispatch `removeMany`, we add the ids to `suppressTombstonePushRef` so the effect skips the tombstone push for that tick — otherwise we'd echo back the remote's delete as our own.
 

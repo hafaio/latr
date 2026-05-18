@@ -83,11 +83,9 @@ class FirestoreTodoStore(
 
     override suspend fun restoreMany(todos: List<Todo>) {
         if (todos.isEmpty()) return
-        val now = System.currentTimeMillis()
         val batch = firestore.batch()
         for (t in todos) {
-            val restored = t.copy(modifiedAt = now)
-            batch.set(collection.document(t.id), restored.toMap(), SetOptions.merge())
+            batch.set(collection.document(t.id), t.toMap(), SetOptions.merge())
         }
         batch.commit().addOnFailureListener { Log.w(TAG, "restoreMany failed", it) }
     }
