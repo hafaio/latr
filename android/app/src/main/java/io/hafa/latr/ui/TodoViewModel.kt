@@ -40,7 +40,7 @@ class TodoViewModel(
     private val _eveningMinutes = MutableStateFlow(userPreferences.eveningMinutes)
     val eveningMinutes: StateFlow<Int> = _eveningMinutes
 
-    private var _lastClearedDoneTodos: List<Todo> = emptyList()
+    private var _lastDeletedTodos: List<Todo> = emptyList()
 
     fun setLastCustomSnoozeTime(time: String) {
         _lastCustomSnoozeTime.value = time
@@ -90,6 +90,13 @@ class TodoViewModel(
         }
     }
 
+    fun deleteTodoUndoable(todo: Todo) {
+        _lastDeletedTodos = listOf(todo)
+        viewModelScope.launch {
+            currentStore().delete(todo)
+        }
+    }
+
     fun unsnoozeExpired() {
         viewModelScope.launch {
             val now = LocalDateTimeUtil.now()
@@ -130,7 +137,7 @@ class TodoViewModel(
 
     fun clearAllDone() {
         viewModelScope.launch {
-            _lastClearedDoneTodos = currentStore().clearAllDone()
+            _lastDeletedTodos = currentStore().clearAllDone()
         }
     }
 
@@ -146,10 +153,10 @@ class TodoViewModel(
         viewModelScope.launch { storeHolder.deleteAccount() }
     }
 
-    fun undoClearAllDone() {
-        val todosToRestore = _lastClearedDoneTodos
+    fun undoLastDelete() {
+        val todosToRestore = _lastDeletedTodos
         if (todosToRestore.isNotEmpty()) {
-            _lastClearedDoneTodos = emptyList()
+            _lastDeletedTodos = emptyList()
             viewModelScope.launch {
                 currentStore().restoreMany(todosToRestore)
             }
