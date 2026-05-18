@@ -117,11 +117,10 @@ export class LocalTodoStore extends BaseTodoStore {
 
   async restoreMany(todos: Todo[]): Promise<void> {
     if (todos.length === 0) return;
-    const now = Date.now();
     const existing = new Set(this.todos.map((t) => t.id));
     const restored = todos
       .filter((t) => !existing.has(t.id))
-      .map((t) => ({ ...t, modifiedAt: now, deleted: false }));
+      .map((t) => ({ ...t, deleted: false }));
     if (restored.length === 0) return;
     this.commit([...restored, ...this.todos]);
   }
@@ -244,10 +243,7 @@ export class FirestoreTodoStore extends BaseTodoStore {
 
   async restoreMany(todos: Todo[]): Promise<void> {
     if (todos.length === 0) return;
-    const now = Date.now();
-    const restored = todos.map(
-      (t): Todo => ({ ...t, modifiedAt: now, deleted: false }),
-    );
+    const restored = todos.map((t): Todo => ({ ...t, deleted: false }));
     const existing = new Set(this.todos.map((t) => t.id));
     const additions = restored.filter((t) => !existing.has(t.id));
     if (additions.length > 0) {

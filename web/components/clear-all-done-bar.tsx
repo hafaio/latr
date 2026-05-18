@@ -7,18 +7,17 @@ export default function ClearAllDoneBar(): ReactElement | null {
   const {
     filter,
     todos,
-    lastClearedDone,
+    lastDeleted,
     undoExpiresAt,
     clearAllDone,
-    undoClearAllDone,
+    undoLastDelete,
   } = useTodos();
 
-  if (filter !== "DONE") return null;
-
+  const showUndo = lastDeleted && undoExpiresAt;
   const hasDone = todos.some((t) => t.state === "DONE");
-  const showUndo = lastClearedDone && undoExpiresAt;
+  const showClearAllDone = filter === "DONE" && hasDone;
 
-  if (!showUndo && !hasDone) return null;
+  if (!showUndo && !showClearAllDone) return null;
 
   return (
     <div className="sticky bottom-0 bg-bg/90 backdrop-blur">
@@ -32,12 +31,12 @@ export default function ClearAllDoneBar(): ReactElement | null {
         {showUndo ? (
           <>
             <span className="text-muted">
-              Cleared {lastClearedDone?.length} todo
-              {lastClearedDone && lastClearedDone.length === 1 ? "" : "s"}
+              Deleted {lastDeleted?.length} todo
+              {lastDeleted && lastDeleted.length === 1 ? "" : "s"}
             </span>
             <button
               type="button"
-              onClick={undoClearAllDone}
+              onClick={undoLastDelete}
               className="px-3 py-1.5 rounded-lg text-accent hover:bg-surface-hover transition-colors font-medium"
             >
               Undo
