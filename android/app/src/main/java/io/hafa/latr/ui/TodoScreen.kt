@@ -310,6 +310,7 @@ fun TodoScreen(
         onCreateTodo = { viewModel.createTodo() },
         onUpdateTodo = { todo, touch -> viewModel.updateTodo(todo, touch) },
         onDeleteTodo = { viewModel.deleteTodo(it) },
+        onSwipeDeleteTodo = { viewModel.deleteTodoUndoable(it) },
         onRefresh = { viewModel.unsnoozeExpired() },
         onTodoFocused = { todoId -> viewModel.setFocusId(todoId) },
         onTodoBlurred = { todoId -> viewModel.clearFocusId(todoId) },
@@ -319,7 +320,7 @@ fun TodoScreen(
             showSnoozeSheet = true
         },
         onClearAllDone = { viewModel.clearAllDone() },
-        onUndoClearAllDone = { viewModel.undoClearAllDone() },
+        onUndoLastDelete = { viewModel.undoLastDelete() },
         isSignedIn = authState.isSignedIn,
         profilePhotoUrl = authState.photoUrl,
         onSignInClick = { showSignInSheet = true },
@@ -389,13 +390,14 @@ fun TodoScreenContent(
     onCreateTodo: () -> Unit,
     onUpdateTodo: (Todo, Boolean) -> Unit,
     onDeleteTodo: (Todo) -> Unit,
+    onSwipeDeleteTodo: (Todo) -> Unit = onDeleteTodo,
     onRefresh: () -> Unit,
     onTodoFocused: (String) -> Unit,
     onTodoBlurred: (String) -> Unit = {},
     onClearFocus: () -> Unit = {},
     onRequestSnooze: (Todo) -> Unit,
     onClearAllDone: (() -> Unit)? = null,
-    onUndoClearAllDone: (() -> Unit)? = null,
+    onUndoLastDelete: (() -> Unit)? = null,
     isSignedIn: Boolean = false,
     profilePhotoUrl: String? = null,
     onSignInClick: () -> Unit = {},
@@ -643,6 +645,12 @@ fun TodoScreenContent(
                                         onClearFocus()
                                         onDeleteTodo(todo)
                                     },
+                                    onSwipeDelete = {
+                                        focusManager.clearFocus()
+                                        onClearFocus()
+                                        onSwipeDeleteTodo(todo)
+                                        undoPending = true
+                                    },
                                     onSnooze = {
                                         focusManager.clearFocus()
                                         onClearFocus()
@@ -658,7 +666,7 @@ fun TodoScreenContent(
             }
 
             AnimatedVisibility(
-                visible = statusFilter == StatusFilter.DONE && (filteredTodos.isNotEmpty() || undoPending),
+                visible = undoPending || (statusFilter == StatusFilter.DONE && filteredTodos.isNotEmpty()),
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -669,12 +677,12 @@ fun TodoScreenContent(
                         .padding(bottom = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    AnimatedContent(targetState = undoPending, label = "clearAllDone") { isUndoPending ->
+                    AnimatedContent(targetState = undoPending, label = "undoDelete") { isUndoPending ->
                         TextButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (isUndoPending) {
-                                    onUndoClearAllDone?.invoke()
+                                    onUndoLastDelete?.invoke()
                                     undoPending = false
                                 } else {
                                     focusManager.clearFocus()
@@ -715,6 +723,7 @@ fun TodoItem(
     onBlurred: (String) -> Unit = {},
     onUpdate: (Todo, Boolean) -> Unit,
     onDelete: () -> Unit,
+    onSwipeDelete: () -> Unit = onDelete,
     onSnooze: () -> Unit,
     onCreateNewTodo: () -> Unit,
     modifier: Modifier = Modifier
@@ -738,6 +747,7 @@ fun TodoItem(
     val currentTodo by rememberUpdatedState(todo)
     val currentOnUpdate by rememberUpdatedState(onUpdate)
     val currentOnDelete by rememberUpdatedState(onDelete)
+    val currentOnSwipeDelete by rememberUpdatedState(onSwipeDelete)
     val currentText by rememberUpdatedState(text)
     val currentOnSnooze by rememberUpdatedState(onSnooze)
 
@@ -778,7 +788,7 @@ fun TodoItem(
         },
         onDismiss = { direction ->
             when (direction to currentTodo.state) {
-                SwipeToDismissBoxValue.EndToStart to TodoState.DONE -> currentOnDelete()
+                SwipeToDismissBoxValue.EndToStart to TodoState.DONE -> currentOnSwipeDelete()
                 SwipeToDismissBoxValue.EndToStart to TodoState.SNOOZED,
                 SwipeToDismissBoxValue.EndToStart to TodoState.ACTIVE ->
                     currentOnUpdate(currentTodo.copy(state = TodoState.DONE, snoozeUntil = null), true)

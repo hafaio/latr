@@ -20,8 +20,7 @@ class RoomTodoStore(private val dao: TodoDao) : TodoStore {
     }
 
     override suspend fun restoreMany(todos: List<Todo>) {
-        val now = System.currentTimeMillis()
-        for (t in todos) dao.insert(t.copy(modifiedAt = now))
+        for (t in todos) dao.insert(t)
     }
 
     override suspend fun deleteEmptyTodosExcept(exceptId: String) {
