@@ -34,9 +34,13 @@ function parseTime(hhmm: string): number | null {
 
 export default function SnoozeMenu({
   onPick,
+  onCustomPick,
+  lastCustomMillis,
   onClose,
 }: {
   onPick: (epochMillis: number) => void;
+  onCustomPick: (epochMillis: number) => void;
+  lastCustomMillis: number | null;
   onClose: () => void;
 }): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,7 +69,7 @@ export default function SnoozeMenu({
     };
   }, [onClose]);
 
-  const options = getSnoozeOptions(new Date());
+  const options = getSnoozeOptions(new Date(), { lastCustomMillis });
 
   function pickedEpoch(): number | null {
     const d = new Date(`${customDate}T00:00:00`);
@@ -146,7 +150,9 @@ export default function SnoozeMenu({
                       className="text-xs px-3 py-1.5 rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
                       disabled={customEpoch === null}
                       onClick={() => {
-                        if (customEpoch !== null) onPick(customEpoch);
+                        if (customEpoch === null) return;
+                        onCustomPick(customEpoch);
+                        onPick(customEpoch);
                       }}
                     >
                       Snooze
