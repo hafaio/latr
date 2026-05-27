@@ -4,6 +4,7 @@ import { type ReactElement, useEffect, useRef } from "react";
 import { FaSearch, FaSync } from "react-icons/fa";
 import { isEditableTarget } from "../utils/keyboard";
 import { useTodos } from "../utils/store";
+import { useOnlineStatus } from "../utils/use-online-status";
 
 export default function TopBar({
   search,
@@ -14,6 +15,18 @@ export default function TopBar({
 }): ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const { syncing } = useTodos();
+  const online = useOnlineStatus();
+
+  // Indicator only shows while syncing; offline (no network to finish on)
+  // swaps the spinner for a static amber arrow.
+  const indicator = !syncing
+    ? null
+    : online
+      ? { className: "text-muted animate-spin", label: "Syncing" }
+      : {
+          className: "text-snooze",
+          label: "Offline — changes saved on this device",
+        };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -54,11 +67,11 @@ export default function TopBar({
               clear
             </button>
           )}
-          {syncing && (
+          {indicator && (
             <FaSync
-              className="text-muted shrink-0 text-xs animate-spin"
-              aria-label="Syncing"
-              title="Syncing"
+              className={`shrink-0 text-xs ${indicator.className}`}
+              aria-label={indicator.label}
+              title={indicator.label}
             />
           )}
         </label>

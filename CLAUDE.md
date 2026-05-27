@@ -32,6 +32,13 @@ Track features and behavior here. When making changes, verify existing behavior 
 - Only the most recent delete is undoable; a later delete overwrites the prior undo buffer
 - Tapping "Undo" re-inserts the deleted todo(s) with their original modifiedAt so they land back in their previous sort position (true undo)
 
+### Sync Indicator (web)
+- The top-bar arrow only appears while syncing (Firestore snapshot is `fromCache` — not yet confirmed with the server); a confirmed-synced state shows nothing
+- While syncing and online: spinning muted arrow ("Syncing")
+- While syncing and offline (`navigator.onLine === false`): static amber arrow ("Offline — changes saved on this device")
+- Offline is subordinate to syncing — never shown when `!syncing`, since there's nothing pending to sync
+- Online status comes from `useOnlineStatus` (`utils/use-online-status.ts`), a `useSyncExternalStore` hook reading `navigator.onLine` live so online/offline event ordering can't leave a stale value
+
 ### Sort Order
 - Active: unsnoozed items by snoozeUntil (most recently unsnoozed first), regular items by modifiedAt descending
 - Snoozed: by snooze time ascending
