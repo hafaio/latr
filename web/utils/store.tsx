@@ -28,6 +28,9 @@ export type UiState = {
   focusId: string | null;
   lastDeleted: Todo[] | null;
   undoExpiresAt: number | null;
+  // Epoch of the most recent custom snooze pick this session; surfaces the
+  // "Last" quick option. Session-only (resets on reload), like Android.
+  lastCustomSnooze: number | null;
 };
 
 export type UiAction =
@@ -35,7 +38,8 @@ export type UiAction =
   | { type: "setSearch"; search: string }
   | { type: "setFocus"; id: string | null }
   | { type: "setLastDeleted"; todos: Todo[] }
-  | { type: "clearLastDeleted" };
+  | { type: "clearLastDeleted" }
+  | { type: "setLastCustomSnooze"; epoch: number };
 
 export const initialUi: UiState = {
   filter: "ACTIVE",
@@ -43,6 +47,7 @@ export const initialUi: UiState = {
   focusId: null,
   lastDeleted: null,
   undoExpiresAt: null,
+  lastCustomSnooze: null,
 };
 
 export function uiReducer(state: UiState, action: UiAction): UiState {
@@ -72,6 +77,8 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
       if (state.lastDeleted === null && state.undoExpiresAt === null)
         return state;
       return { ...state, lastDeleted: null, undoExpiresAt: null };
+    case "setLastCustomSnooze":
+      return { ...state, lastCustomSnooze: action.epoch };
   }
 }
 
@@ -85,6 +92,7 @@ type ContextShape = UiState & {
   markDone: (id: string) => void;
   reactivate: (id: string) => void;
   snooze: (id: string, epoch: number) => void;
+  recordCustomSnooze: (epoch: number) => void;
   remove: (id: string) => void;
   removeUndoable: (id: string) => void;
   clearAllDone: () => void;
@@ -231,6 +239,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     [holder],
   );
 
+  const recordCustomSnooze = useCallback((epoch: number) => {
+    dispatch({ type: "setLastCustomSnooze", epoch });
+  }, []);
+
   const remove = useCallback(
     (id: string) => {
       const store = holder.getStore();
@@ -296,6 +308,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       markDone,
       reactivate,
       snooze,
+      recordCustomSnooze,
       remove,
       removeUndoable,
       clearAllDone,
@@ -316,6 +329,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       markDone,
       reactivate,
       snooze,
+      recordCustomSnooze,
       remove,
       removeUndoable,
       clearAllDone,
