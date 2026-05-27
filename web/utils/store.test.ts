@@ -72,4 +72,18 @@ describe("uiReducer", () => {
     expect(next.lastDeleted).toBeNull();
     expect(next.undoExpiresAt).toBeNull();
   });
+
+  test("setLastCustomSnooze records the epoch", () => {
+    const next = uiReducer(initialUi, {
+      type: "setLastCustomSnooze",
+      epoch: 1234,
+    });
+    expect(next.lastCustomSnooze).toBe(1234);
+  });
+
+  test("setFilter preserves lastCustomSnooze (session-persistent)", () => {
+    const primed = { ...initialUi, lastCustomSnooze: 1234 };
+    const next = uiReducer(primed, { type: "setFilter", filter: "DONE" });
+    expect(next.lastCustomSnooze).toBe(1234);
+  });
 });

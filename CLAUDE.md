@@ -11,6 +11,11 @@ Track features and behavior here. When making changes, verify existing behavior 
 - In snooze menu, if snooze time is within 24 hours, only show the time
 - Snooze time formatting uses abs() on time delta so past snooze times >24h ago also show date+time format
 
+### Snooze Options
+- Quick options come from `getSnoozeOptions` (web: `utils/snooze.ts`, Android: `SnoozeTimeCalculator`), context-dependent on time-of-day/weekday
+- "Last" appears only after a custom date+time has been picked this session, re-offering that exact time; it sits just above "Custom"
+- The last custom pick is session-only (resets on reload) — web stores it in the UI reducer (`lastCustomSnooze`), Android in a ViewModel `StateFlow`. Picking a preset or "Last" itself does not overwrite it; only the custom picker does
+
 ### Focus Behavior
 - No todo should be focused when opening the app
 - No todo should be focused when changing filters
