@@ -2,6 +2,7 @@ package io.hafa.latr.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import java.util.UUID
 
@@ -14,7 +15,7 @@ data class Todo(
     val text: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val modifiedAt: Long = System.currentTimeMillis(),
-    val serverModifiedAt: Long = 0,
+    val serverModifiedAt: Timestamp? = null,
     val state: TodoState = TodoState.ACTIVE,
     val snoozeUntil: String? = null,
     val pinned: Boolean = false,
@@ -34,18 +35,12 @@ data class Todo(
     companion object {
         fun fromMap(id: String, data: Map<String, Any?>): Todo {
             val modifiedAt = data["modifiedAt"] as? Long ?: System.currentTimeMillis()
-            val serverTs = data["serverModifiedAt"]
-            val serverModifiedAt = when (serverTs) {
-                is com.google.firebase.Timestamp -> serverTs.toDate().time
-                is Long -> serverTs
-                else -> modifiedAt
-            }
             return Todo(
                 id = id,
                 text = data["text"] as? String ?: "",
                 createdAt = data["createdAt"] as? Long ?: System.currentTimeMillis(),
                 modifiedAt = modifiedAt,
-                serverModifiedAt = serverModifiedAt,
+                serverModifiedAt = data["serverModifiedAt"] as? Timestamp,
                 state = (data["state"] as? String)
                     ?.let { name -> TodoState.entries.firstOrNull { it.name == name } }
                     ?: TodoState.ACTIVE,

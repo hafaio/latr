@@ -1,13 +1,14 @@
 package io.hafa.latr.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.hafa.latr.data.Todo
-import io.hafa.latr.data.TodoState
 import io.hafa.latr.data.TodoStoreHolder
 import io.hafa.latr.data.UserPreferences
 import io.hafa.latr.util.LocalDateTimeUtil
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -101,11 +102,14 @@ class TodoViewModel(
         viewModelScope.launch {
             val now = LocalDateTimeUtil.now()
             val store = currentStore()
-            val expired = store.getExpiredSnoozed(now)
-            for (todo in expired) {
-                val snoozeMillis = todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
-                    ?: System.currentTimeMillis()
-                store.update(todo.copy(state = TodoState.ACTIVE, modifiedAt = snoozeMillis))
+            for (todo in store.getExpiredSnoozed(now)) {
+                try {
+                    store.unsnooze(todo)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "unsnooze failed for ${todo.id}; will retry", e)
+                }
             }
         }
     }
@@ -161,6 +165,10 @@ class TodoViewModel(
                 currentStore().restoreMany(todosToRestore)
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "TodoViewModel"
     }
 }
 

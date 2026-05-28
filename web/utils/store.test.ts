@@ -9,7 +9,7 @@ function todo(id: string): Todo {
     state: "DONE",
     createdAt: 0,
     modifiedAt: 0,
-    serverModifiedAt: 0,
+    serverModifiedAt: null,
     snoozeUntil: null,
     pinned: false,
     deleted: false,
