@@ -5,10 +5,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  FirestoreError,
   getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
+  Timestamp,
+  updateDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
@@ -16,12 +19,27 @@ import { fromFirestore, type Todo, toFirestoreFields } from "./todo";
 
 const STORAGE_KEY = "latr:todos:v1";
 
+function rehydrateTimestamp(v: unknown): Timestamp | null {
+  if (v === null || v === undefined) return null;
+  else if (v instanceof Timestamp) return v;
+  else if (
+    typeof v === "object" &&
+    typeof (v as { seconds?: unknown }).seconds === "number" &&
+    typeof (v as { nanoseconds?: unknown }).nanoseconds === "number"
+  ) {
+    const obj = v as { seconds: number; nanoseconds: number };
+    return new Timestamp(obj.seconds, obj.nanoseconds);
+  } else return null;
+}
+
 export interface TodoStore {
   getTodos(): Todo[];
   isSyncing(): boolean;
   subscribe(listener: () => void): () => void;
   insert(todo: Todo): Promise<void>;
   update(todo: Todo): Promise<void>;
+  /** Flip state to ACTIVE without advancing serverModifiedAt. */
+  unsnooze(todo: Todo): Promise<void>;
   delete(todo: Todo): Promise<void>;
   clearAllDone(): Promise<Todo[]>;
   restoreMany(todos: Todo[]): Promise<void>;
@@ -56,6 +74,7 @@ abstract class BaseTodoStore implements TodoStore {
 
   abstract insert(todo: Todo): Promise<void>;
   abstract update(todo: Todo): Promise<void>;
+  abstract unsnooze(todo: Todo): Promise<void>;
   abstract delete(todo: Todo): Promise<void>;
   abstract clearAllDone(): Promise<Todo[]>;
   abstract restoreMany(todos: Todo[]): Promise<void>;
@@ -85,7 +104,13 @@ export class LocalTodoStore extends BaseTodoStore {
       const parsed: Todo[] = raw ? JSON.parse(raw) : [];
       this.todos = parsed
         .filter((t) => t.deleted !== true)
-        .map((t) => ({ ...t, deleted: false }));
+        .map((t) => ({
+          ...t,
+          deleted: false,
+          // JSON.parse leaves serverModifiedAt as a {seconds, nanoseconds}
+          // plain object; rehydrate it so the type signature isn't a lie.
+          serverModifiedAt: rehydrateTimestamp(t.serverModifiedAt),
+        }));
     } catch {
       this.todos = [];
     }
@@ -102,6 +127,18 @@ export class LocalTodoStore extends BaseTodoStore {
 
   async update(todo: Todo): Promise<void> {
     this.commit(this.todos.map((t) => (t.id === todo.id ? todo : t)));
+  }
+
+  async unsnooze(todo: Todo): Promise<void> {
+    const snoozeMillis = todo.snoozeUntil
+      ? new Date(todo.snoozeUntil).getTime()
+      : Date.now();
+    const next = {
+      ...todo,
+      state: "ACTIVE" as const,
+      modifiedAt: snoozeMillis,
+    };
+    this.commit(this.todos.map((t) => (t.id === todo.id ? next : t)));
   }
 
   async delete(todo: Todo): Promise<void> {
@@ -222,6 +259,36 @@ export class FirestoreTodoStore extends BaseTodoStore {
     await setDoc(doc(this.col, todo.id), this.withServerTs(todo), {
       merge: true,
     });
+  }
+
+  async unsnooze(todo: Todo): Promise<void> {
+    // Minimal payload: only the fields auto-unsnooze actually changes, plus
+    // the basis. Keeps a concurrent edit's other fields (text, etc.) from
+    // riding along on an equal-basis race that the `>=` rule lets pass.
+    // updateDoc (vs setDoc with merge) fails on a missing doc instead of
+    // resurrecting one that was deleted on another device — the create rule
+    // doesn't check serverModifiedAt, so setDoc(merge) would bypass the gate.
+    const snoozeMillis = todo.snoozeUntil
+      ? new Date(todo.snoozeUntil).getTime()
+      : Date.now();
+    const payload: Record<string, unknown> = {
+      state: "ACTIVE",
+      modifiedAt: snoozeMillis,
+      serverModifiedAt: todo.serverModifiedAt ?? serverTimestamp(),
+    };
+    try {
+      await updateDoc(doc(this.col, todo.id), payload);
+    } catch (e) {
+      // permission-denied: concurrent edit advanced the basis.
+      // not-found: doc was deleted on another device since our snapshot.
+      // Both are expected; the listener will deliver the truth.
+      if (
+        e instanceof FirestoreError &&
+        (e.code === "permission-denied" || e.code === "not-found")
+      )
+        return;
+      else throw e;
+    }
   }
 
   async delete(todo: Todo): Promise<void> {

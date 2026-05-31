@@ -171,10 +171,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     if (expired.length > 0) {
       const store = holder.getStore();
       for (const t of expired) {
-        void store.update({
-          ...t,
-          state: "ACTIVE" as TodoState,
-          modifiedAt: t.snoozeUntil ? isoToEpoch(t.snoozeUntil) : now,
+        // Rule-rejection is swallowed inside the store; anything else
+        // (network, etc.) is logged and retried on the next listener tick.
+        store.unsnooze(t).catch((e) => {
+          console.warn("unsnooze failed; will retry", t.id, e);
         });
       }
     }

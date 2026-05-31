@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Timestamp } from "firebase/firestore";
 import {
   epochToIso,
   fromFirestore,
@@ -18,7 +19,7 @@ function todo(overrides: Partial<Todo> = {}): Todo {
     state: overrides.state ?? "ACTIVE",
     createdAt: overrides.createdAt ?? now,
     modifiedAt: overrides.modifiedAt ?? now,
-    serverModifiedAt: overrides.serverModifiedAt ?? 0,
+    serverModifiedAt: overrides.serverModifiedAt ?? null,
     snoozeUntil: overrides.snoozeUntil ?? null,
     pinned: overrides.pinned ?? false,
     deleted: overrides.deleted ?? false,
@@ -43,7 +44,7 @@ describe("epochToIso / isoToEpoch", () => {
 
 describe("toFirestoreFields", () => {
   test("strips id and serverModifiedAt", () => {
-    const t = todo({ id: "abc", serverModifiedAt: 999 });
+    const t = todo({ id: "abc", serverModifiedAt: Timestamp.fromMillis(999) });
     const fields = toFirestoreFields(t);
     expect(fields).not.toHaveProperty("id");
     expect(fields).not.toHaveProperty("serverModifiedAt");
@@ -69,20 +70,43 @@ describe("fromFirestore", () => {
     expect(fromFirestore("id", { state: "BOGUS" }).state).toBe("ACTIVE");
   });
 
-  test("falls back to modifiedAt when serverModifiedAt is missing", () => {
+  test("serverModifiedAt is null when the field is missing", () => {
     const t = fromFirestore("id", { modifiedAt: 42 });
-    expect(t.serverModifiedAt).toBe(42);
+    expect(t.serverModifiedAt).toBeNull();
   });
 
-  test("reads server timestamp via toMillis", () => {
-    const ts = { toMillis: () => 12345 };
+  test("reads a Firestore Timestamp losslessly", () => {
+    const ts = new Timestamp(12, 345_678_000);
     const t = fromFirestore("id", { serverModifiedAt: ts, modifiedAt: 1 });
-    expect(t.serverModifiedAt).toBe(12345);
+    expect(t.serverModifiedAt).toBe(ts);
+    expect(t.serverModifiedAt?.seconds).toBe(12);
+    expect(t.serverModifiedAt?.nanoseconds).toBe(345_678_000);
   });
 
-  test("accepts a raw number for serverModifiedAt", () => {
-    const t = fromFirestore("id", { serverModifiedAt: 99, modifiedAt: 1 });
-    expect(t.serverModifiedAt).toBe(99);
+  test("logs and nulls a non-Timestamp serverModifiedAt (schema drift)", () => {
+    const calls: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      calls.push(args);
+    };
+    try {
+      // A number is schema drift (older client) — should log.
+      const drifted = fromFirestore("id", {
+        serverModifiedAt: 99,
+        modifiedAt: 1,
+      });
+      expect(drifted.serverModifiedAt).toBeNull();
+      expect(calls.length).toBe(1);
+      // null is the SDK's pending-write echo — should NOT log.
+      const pending = fromFirestore("id", {
+        serverModifiedAt: null,
+        modifiedAt: 1,
+      });
+      expect(pending.serverModifiedAt).toBeNull();
+      expect(calls.length).toBe(1);
+    } finally {
+      console.error = original;
+    }
   });
 
   test("deleted flag reads strictly true", () => {

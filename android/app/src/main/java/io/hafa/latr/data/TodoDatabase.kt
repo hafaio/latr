@@ -8,6 +8,7 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.google.firebase.Timestamp
 
 class Converters {
     @TypeConverter
@@ -15,9 +16,21 @@ class Converters {
 
     @TypeConverter
     fun toTodoState(value: String): TodoState = TodoState.valueOf(value)
+
+    // Millis-truncated; Room is signed-out only, never feeds the conflict rule.
+    @TypeConverter
+    fun fromTimestamp(t: Timestamp?): Long? =
+        t?.let { it.seconds * 1000 + it.nanoseconds / 1_000_000 }
+
+    // floorDiv/floorMod so negative millis (pre-epoch) round to non-negative
+    // nanos — the Timestamp constructor rejects negative nanoseconds.
+    @TypeConverter
+    fun toTimestamp(millis: Long?): Timestamp? = millis?.let {
+        Timestamp(Math.floorDiv(it, 1000), (Math.floorMod(it, 1000) * 1_000_000).toInt())
+    }
 }
 
-@Database(entities = [Todo::class], version = 8, exportSchema = false)
+@Database(entities = [Todo::class], version = 9, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class TodoDatabase : RoomDatabase() {
     abstract fun todoDao(): TodoDao
@@ -32,6 +45,7 @@ abstract class TodoDatabase : RoomDatabase() {
             }
         }
 
+        // v9: serverModifiedAt → nullable (Timestamp via Converter); destructive.
         fun getDatabase(context: Context): TodoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(

@@ -10,7 +10,7 @@ function todo(overrides: Partial<Todo>): Todo {
     state: overrides.state ?? "ACTIVE",
     createdAt: base,
     modifiedAt: overrides.modifiedAt ?? base,
-    serverModifiedAt: 0,
+    serverModifiedAt: null,
     snoozeUntil: overrides.snoozeUntil ?? null,
     pinned: false,
     deleted: false,
