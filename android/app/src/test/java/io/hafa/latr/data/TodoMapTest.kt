@@ -16,7 +16,8 @@ class TodoMapTest {
             text = "buy milk",
             createdAt = 1_700_000_000_000L,
             modifiedAt = 1_700_000_001_000L,
-            serverModifiedAt = 42L, // local-only, not written to wire
+            // serverModifiedAt is in-memory only; toMap always stamps the sentinel.
+            serverModifiedAt = null,
             state = TodoState.SNOOZED,
             snoozeUntil = "2026-04-24T09:00:00",
             pinned = true,
@@ -44,11 +45,12 @@ class TodoMapTest {
 
     @Test
     fun `fromMap reads a well-formed document`() {
+        val ts = Timestamp(Date(333L))
         val data = mapOf<String, Any?>(
             "text" to "ship release",
             "createdAt" to 111L,
             "modifiedAt" to 222L,
-            "serverModifiedAt" to 333L,
+            "serverModifiedAt" to ts,
             "state" to "DONE",
             "snoozeUntil" to null,
             "pinned" to true,
@@ -59,7 +61,7 @@ class TodoMapTest {
         assertEquals("ship release", todo.text)
         assertEquals(111L, todo.createdAt)
         assertEquals(222L, todo.modifiedAt)
-        assertEquals(333L, todo.serverModifiedAt)
+        assertEquals(ts, todo.serverModifiedAt)
         assertEquals(TodoState.DONE, todo.state)
         assertNull(todo.snoozeUntil)
         assertEquals(true, todo.pinned)
@@ -67,16 +69,27 @@ class TodoMapTest {
     }
 
     @Test
-    fun `fromMap reads a com google firebase Timestamp for serverModifiedAt`() {
-        val ts = Timestamp(Date(555L))
+    fun `fromMap preserves a Firestore Timestamp losslessly`() {
+        val ts = Timestamp(12L, 345_678_000)
         val todo = Todo.fromMap("id", mapOf("serverModifiedAt" to ts, "modifiedAt" to 1L))
-        assertEquals(555L, todo.serverModifiedAt)
+        assertEquals(ts, todo.serverModifiedAt)
+        assertEquals(12L, todo.serverModifiedAt?.seconds)
+        assertEquals(345_678_000, todo.serverModifiedAt?.nanoseconds)
     }
 
     @Test
-    fun `fromMap falls back to modifiedAt when serverModifiedAt is missing`() {
+    fun `fromMap nulls serverModifiedAt when missing`() {
         val todo = Todo.fromMap("id", mapOf("modifiedAt" to 777L))
-        assertEquals(777L, todo.serverModifiedAt)
+        assertNull(todo.serverModifiedAt)
+    }
+
+    @Test
+    fun `fromMap nulls serverModifiedAt when not a Timestamp (legacy Long)`() {
+        // Older clients wrote Long millis here. They're well-formed for the
+        // prior schema but ignored under the new contract — the basis we'd
+        // resend has no fidelity, and fresh writes re-stamp it.
+        val todo = Todo.fromMap("id", mapOf("serverModifiedAt" to 999L))
+        assertNull(todo.serverModifiedAt)
     }
 
     @Test

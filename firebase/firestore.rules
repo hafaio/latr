@@ -5,7 +5,17 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
       match /todos/{todoId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, create, delete: if request.auth != null
+          && request.auth.uid == userId;
+
+        // Writes must monotonically advance serverModifiedAt. Real edits
+        // stamp serverTimestamp() and always pass; the auto-unsnooze re-sends
+        // its basis, so a stale client loses to a concurrent edit. Legacy
+        // docs without the field get one free pass.
+        allow update: if request.auth != null
+          && request.auth.uid == userId
+          && (!('serverModifiedAt' in resource.data)
+              || request.resource.data.serverModifiedAt >= resource.data.serverModifiedAt);
       }
     }
   }

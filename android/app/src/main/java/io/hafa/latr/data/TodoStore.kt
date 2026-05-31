@@ -14,6 +14,10 @@ interface TodoStore {
 
     suspend fun insert(todo: Todo)
     suspend fun update(todo: Todo)
+
+    /** Flip state to ACTIVE without advancing serverModifiedAt. */
+    suspend fun unsnooze(todo: Todo)
+
     suspend fun delete(todo: Todo)
 
     suspend fun clearAllDone(): List<Todo>

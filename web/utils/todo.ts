@@ -1,3 +1,5 @@
+import { Timestamp } from "firebase/firestore";
+
 export type TodoState = "ACTIVE" | "DONE" | "SNOOZED";
 
 export type Todo = {
@@ -6,7 +8,7 @@ export type Todo = {
   state: TodoState;
   createdAt: number;
   modifiedAt: number;
-  serverModifiedAt: number;
+  serverModifiedAt: Timestamp | null;
   snoozeUntil: string | null;
   pinned: boolean;
   deleted: boolean;
@@ -23,7 +25,7 @@ export function newTodo(text = ""): Todo {
     state: "ACTIVE",
     createdAt: now,
     modifiedAt: now,
-    serverModifiedAt: 0,
+    serverModifiedAt: null,
     snoozeUntil: null,
     pinned: false,
     deleted: false,
@@ -42,12 +44,15 @@ export function toFirestoreFields(t: Todo): Record<string, unknown> {
   };
 }
 
-function readServerTimestamp(val: unknown, fallback: number): number {
-  if (val && typeof val === "object" && "toMillis" in val) {
-    return (val as { toMillis: () => number }).toMillis();
+function readServerTimestamp(val: unknown): Timestamp | null {
+  // null is the SDK's representation of an unresolved serverTimestamp() (the
+  // local-cache tick before the server acks); treat it the same as missing.
+  if (val === undefined || val === null) return null;
+  else if (val instanceof Timestamp) return val;
+  else {
+    console.error("serverModifiedAt is not a Timestamp", val);
+    return null;
   }
-  if (typeof val === "number") return val;
-  return fallback;
 }
 
 export function fromFirestore(id: string, data: Record<string, unknown>): Todo {
@@ -59,7 +64,7 @@ export function fromFirestore(id: string, data: Record<string, unknown>): Todo {
     state: isTodoState(data.state) ? data.state : "ACTIVE",
     createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
     modifiedAt,
-    serverModifiedAt: readServerTimestamp(data.serverModifiedAt, modifiedAt),
+    serverModifiedAt: readServerTimestamp(data.serverModifiedAt),
     snoozeUntil: typeof data.snoozeUntil === "string" ? data.snoozeUntil : null,
     pinned: data.pinned === true,
     deleted: data.deleted === true,

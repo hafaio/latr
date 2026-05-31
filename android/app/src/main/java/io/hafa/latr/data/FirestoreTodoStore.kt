@@ -2,8 +2,11 @@ package io.hafa.latr.data
 
 import android.util.Log
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
+import io.hafa.latr.util.LocalDateTimeUtil
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -61,6 +64,32 @@ class FirestoreTodoStore(
     override suspend fun update(todo: Todo) {
         collection.document(todo.id).set(todo.toMap(), SetOptions.merge())
             .addOnFailureListener { Log.w(TAG, "update failed", it) }
+    }
+
+    override suspend fun unsnooze(todo: Todo) {
+        // Minimal payload + update (vs set/merge): a stale unsnooze can't ride
+        // any other fields along on an equal-basis race, and can't resurrect
+        // a doc deleted on another device (the create rule wouldn't check the
+        // basis monotonicity).
+        val snoozeMillis = todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
+            ?: System.currentTimeMillis()
+        val payload = mapOf<String, Any>(
+            "state" to TodoState.ACTIVE.name,
+            "modifiedAt" to snoozeMillis,
+            "serverModifiedAt" to (todo.serverModifiedAt ?: FieldValue.serverTimestamp()),
+        )
+        try {
+            collection.document(todo.id).update(payload).await()
+        } catch (e: FirebaseFirestoreException) {
+            // PERMISSION_DENIED: concurrent edit advanced the basis.
+            // NOT_FOUND: doc was deleted on another device since our snapshot.
+            // Both are expected; the listener will deliver the truth.
+            if (
+                e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+                e.code == FirebaseFirestoreException.Code.NOT_FOUND
+            ) return
+            else throw e
+        }
     }
 
     override suspend fun delete(todo: Todo) {
