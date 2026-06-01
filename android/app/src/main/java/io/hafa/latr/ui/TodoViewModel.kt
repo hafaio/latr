@@ -64,13 +64,17 @@ class TodoViewModel(
     private fun currentStore() = storeHolder.store.value
 
     fun createTodo() {
+        // Insert + focus first so the new row appears immediately; the empty-
+        // cleanup query (Firestore `.get().await()`) runs in the background.
+        // Otherwise a cold-boot `get` can block focus by seconds while it
+        // waits on auth/network.
+        val todo = Todo()
         viewModelScope.launch {
             val store = currentStore()
-            store.deleteEmptyTodosExcept("")
-            val todo = Todo()
             store.insert(todo)
             _fastCreationId.value = todo.id
             _focusId.value = todo.id
+            store.deleteEmptyTodosExcept(todo.id)
         }
     }
 
