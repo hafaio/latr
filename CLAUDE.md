@@ -26,16 +26,24 @@ Track features and behavior here. When making changes, verify existing behavior 
 - When a todo gains focus, scroll to it first
 - No extra space should appear below the search bar when focusing a todo
 
-### Undo Delete
+### Undo
+- The undo buffer holds one most-recent action — either a delete or a snooze. A later action of either kind overwrites the prior buffer (single slot, most-recent-wins)
+- The buffer is a tagged entry: web `lastUndo: { kind: "delete" | "snooze"; todos }` in the UI reducer; Android a private `UndoableAction` sealed type (`Delete` | `Snooze`) on the ViewModel
+- Undo chip auto-expires after 5 seconds; cancelled when changing filters or creating a new todo
+
+#### Delete
 - "Clear all done" button appears above the bottom bar when on the Done filter with non-empty list (surfaceContainerHigh background)
 - Button is hidden on other filters and when the done list is empty (unless undo is pending)
 - Tapping it clears focus, deletes all done todos, and shows an inline "Undo" chip in place
 - A single swipe-delete (DONE row swiped end-to-start) also shows the "Undo" chip at the bottom, on any filter
 - The empty-draft blur-cleanup (new todo abandoned without typing) does NOT show the chip — the user never had content to lose
-- Undo chip auto-expires after 5 seconds
-- Undo is cancelled when changing filters or creating a new todo
-- Only the most recent delete is undoable; a later delete overwrites the prior undo buffer
 - Tapping "Undo" re-inserts the deleted todo(s) with their original modifiedAt so they land back in their previous sort position (true undo)
+
+#### Snooze
+- Committing a snooze (preset, "Last", or custom pick) shows the "Undo" chip; tapping it reverts the todo to its pre-snooze snapshot (prior state/snoozeUntil/modifiedAt), so it lands back in its previous sort position
+- Snooze undo restores via the normal update path (the row still exists, unlike a delete which re-inserts); `serverModifiedAt` bumps on the write so it passes the server-time rule
+- Web: `lastUndo` drives the same chip as delete (label "Snoozed"), and ⌘/Ctrl+Z reverts it. Android: the snooze commit lives in the parent `TodoScreen`, which bumps a `snoozeUndoSignal` counter that `TodoScreenContent` watches to raise the shared `undoPending` chip
+- Snooze undo only surfaces on the filter where the snooze happened (Active/Snoozed); a filter change clears it, so it never competes with "Clear all done" on the Done filter
 
 ### Sync Indicator (web)
 - The top-bar arrow only appears while syncing (Firestore snapshot is `fromCache` — not yet confirmed with the server); a confirmed-synced state shows nothing

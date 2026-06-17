@@ -296,6 +296,8 @@ fun TodoScreen(
     val morningMinutes by viewModel.morningMinutes.collectAsState()
     val eveningMinutes by viewModel.eveningMinutes.collectAsState()
 
+    val undoVisible by viewModel.undoVisible.collectAsState()
+
     var showSnoozeSheet by remember { mutableStateOf(false) }
     var todoToSnooze by remember { mutableStateOf<Todo?>(null) }
     val authState = rememberAuthState(authManager)
@@ -320,7 +322,9 @@ fun TodoScreen(
             showSnoozeSheet = true
         },
         onClearAllDone = { viewModel.clearAllDone() },
-        onUndoLastDelete = { viewModel.undoLastDelete() },
+        onUndoLastDelete = { viewModel.undoLastAction() },
+        undoVisible = undoVisible,
+        onDismissUndo = { viewModel.dismissUndo() },
         isSignedIn = authState.isSignedIn,
         profilePhotoUrl = authState.photoUrl,
         onSignInClick = { showSignInSheet = true },
@@ -336,13 +340,7 @@ fun TodoScreen(
             },
             onSnoozeSelected = { isoDateTime ->
                 todoToSnooze?.let { todo ->
-                    viewModel.updateTodo(
-                        todo.copy(
-                            state = TodoState.SNOOZED,
-                            snoozeUntil = isoDateTime
-                        ),
-                        touchModifiedAt = true
-                    )
+                    viewModel.snoozeUndoable(todo, isoDateTime)
                 }
             },
             onCustomTimeSelected = { isoDateTime ->
@@ -398,6 +396,8 @@ fun TodoScreenContent(
     onRequestSnooze: (Todo) -> Unit,
     onClearAllDone: (() -> Unit)? = null,
     onUndoLastDelete: (() -> Unit)? = null,
+    undoVisible: Boolean = false,
+    onDismissUndo: () -> Unit = {},
     isSignedIn: Boolean = false,
     profilePhotoUrl: String? = null,
     onSignInClick: () -> Unit = {},
@@ -410,7 +410,6 @@ fun TodoScreenContent(
     val focusManager = LocalFocusManager.current
     val hapticFeedback = LocalHapticFeedback.current
     val pullToRefreshState = rememberPullToRefreshState()
-    var undoPending by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var savedPage by rememberSaveable { mutableIntStateOf(TAB_ORDER.indexOf(initialStatusFilter)) }
     val pagerState = rememberPagerState(initialPage = savedPage) { TAB_ORDER.size }
@@ -437,16 +436,9 @@ fun TodoScreenContent(
         if (previousFilter != null) {
             focusManager.clearFocus()
             onClearFocus()
-            undoPending = false
+            onDismissUndo()
         }
         previousFilter = statusFilter
-    }
-
-    LaunchedEffect(undoPending) {
-        if (undoPending) {
-            delay(5_000)
-            undoPending = false
-        }
     }
 
     // Clear focus when app is backgrounded
@@ -557,7 +549,6 @@ fun TodoScreenContent(
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch { pagerState.animateScrollToPage(DEFAULT_TAB) }
-                        undoPending = false
                         onCreateTodo()
                     },
                     modifier = Modifier.size(56.dp)
@@ -649,7 +640,6 @@ fun TodoScreenContent(
                                         focusManager.clearFocus()
                                         onClearFocus()
                                         onSwipeDeleteTodo(todo)
-                                        undoPending = true
                                     },
                                     onSnooze = {
                                         focusManager.clearFocus()
@@ -666,7 +656,7 @@ fun TodoScreenContent(
             }
 
             AnimatedVisibility(
-                visible = undoPending || (statusFilter == StatusFilter.DONE && filteredTodos.isNotEmpty()),
+                visible = undoVisible || (statusFilter == StatusFilter.DONE && filteredTodos.isNotEmpty()),
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -677,18 +667,16 @@ fun TodoScreenContent(
                         .padding(bottom = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    AnimatedContent(targetState = undoPending, label = "undoDelete") { isUndoPending ->
+                    AnimatedContent(targetState = undoVisible, label = "undoDelete") { isUndoPending ->
                         TextButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (isUndoPending) {
                                     onUndoLastDelete?.invoke()
-                                    undoPending = false
                                 } else {
                                     focusManager.clearFocus()
                                     onClearFocus()
                                     onClearAllDone?.invoke()
-                                    undoPending = true
                                 }
                             },
                             shape = RoundedCornerShape(50),
