@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.hafa.latr.data.Todo
+import io.hafa.latr.data.TodoState
 import io.hafa.latr.data.TodoStoreHolder
 import io.hafa.latr.data.UserPreferences
 import io.hafa.latr.util.LocalDateTimeUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +44,42 @@ class TodoViewModel(
     private val _eveningMinutes = MutableStateFlow(userPreferences.eveningMinutes)
     val eveningMinutes: StateFlow<Int> = _eveningMinutes
 
-    private var _lastDeletedTodos: List<Todo> = emptyList()
+    // A single, most-recent-wins undo buffer. Delete restores via re-insert
+    // (the rows are gone); Snooze restores via update (the row still exists,
+    // just needs its prior state/snoozeUntil/modifiedAt put back).
+    private sealed interface UndoableAction {
+        data class Delete(val todos: List<Todo>) : UndoableAction
+        data class Snooze(val previous: Todo) : UndoableAction
+    }
+
+    private var _lastAction: UndoableAction? = null
+
+    // The VM owns both the undo buffer and its 5s lifetime, so delete and
+    // snooze share one source of truth — the UI just renders `undoVisible` and
+    // reports the events (swipe-delete, clear-all, snooze, filter change) that
+    // arm or dismiss it. No per-action UI flag or timer.
+    private val _undoVisible = MutableStateFlow(false)
+    val undoVisible: StateFlow<Boolean> = _undoVisible
+
+    private var undoExpiryJob: Job? = null
+
+    private fun armUndo() {
+        _undoVisible.value = true
+        undoExpiryJob?.cancel()
+        undoExpiryJob = viewModelScope.launch {
+            delay(UNDO_TIMEOUT_MS)
+            _undoVisible.value = false
+            _lastAction = null
+        }
+    }
+
+    /** Drops the undo buffer and hides the chip (filter change, new todo). */
+    fun dismissUndo() {
+        undoExpiryJob?.cancel()
+        undoExpiryJob = null
+        _undoVisible.value = false
+        _lastAction = null
+    }
 
     fun setLastCustomSnoozeTime(time: String) {
         _lastCustomSnoozeTime.value = time
@@ -64,6 +102,7 @@ class TodoViewModel(
     private fun currentStore() = storeHolder.store.value
 
     fun createTodo() {
+        dismissUndo()
         // Insert + focus first so the new row appears immediately; the empty-
         // cleanup query (Firestore `.get().await()`) runs in the background.
         // Otherwise a cold-boot `get` can block focus by seconds while it
@@ -96,10 +135,22 @@ class TodoViewModel(
     }
 
     fun deleteTodoUndoable(todo: Todo) {
-        _lastDeletedTodos = listOf(todo)
+        _lastAction = UndoableAction.Delete(listOf(todo))
+        armUndo()
         viewModelScope.launch {
             currentStore().delete(todo)
         }
+    }
+
+    fun snoozeUndoable(todo: Todo, snoozeUntil: String) {
+        // Buffer the pre-snooze snapshot so undo can restore its prior
+        // state/snoozeUntil/modifiedAt (and thus its prior sort position).
+        _lastAction = UndoableAction.Snooze(todo)
+        armUndo()
+        updateTodo(
+            todo.copy(state = TodoState.SNOOZED, snoozeUntil = snoozeUntil),
+            touchModifiedAt = true
+        )
     }
 
     fun unsnoozeExpired() {
@@ -144,8 +195,13 @@ class TodoViewModel(
     }
 
     fun clearAllDone() {
+        // Arm synchronously: the "Clear all done" button only shows for a
+        // non-empty list, so there's always something to undo, and showing the
+        // chip now (rather than after the async clear) avoids a flicker as the
+        // list empties out from under the bottom bar.
+        armUndo()
         viewModelScope.launch {
-            _lastDeletedTodos = currentStore().clearAllDone()
+            _lastAction = UndoableAction.Delete(currentStore().clearAllDone())
         }
     }
 
@@ -161,18 +217,28 @@ class TodoViewModel(
         viewModelScope.launch { storeHolder.deleteAccount() }
     }
 
-    fun undoLastDelete() {
-        val todosToRestore = _lastDeletedTodos
-        if (todosToRestore.isNotEmpty()) {
-            _lastDeletedTodos = emptyList()
-            viewModelScope.launch {
-                currentStore().restoreMany(todosToRestore)
-            }
+    fun undoLastAction() {
+        when (val action = _lastAction) {
+            is UndoableAction.Delete ->
+                if (action.todos.isNotEmpty()) {
+                    viewModelScope.launch {
+                        currentStore().restoreMany(action.todos)
+                    }
+                }
+            is UndoableAction.Snooze ->
+                // Re-apply the prior snapshot verbatim (no modifiedAt touch) so
+                // the row lands back in its previous sort position.
+                viewModelScope.launch {
+                    currentStore().update(action.previous)
+                }
+            null -> {}
         }
+        dismissUndo()
     }
 
     companion object {
         private const val TAG = "TodoViewModel"
+        private const val UNDO_TIMEOUT_MS = 5_000L
     }
 }
 

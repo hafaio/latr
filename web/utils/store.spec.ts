@@ -21,13 +21,13 @@ describe("uiReducer", () => {
     const primed = {
       ...initialUi,
       focusId: "x",
-      lastDeleted: [todo("a")],
+      lastUndo: { kind: "delete" as const, todos: [todo("a")] },
       undoExpiresAt: 1,
     };
     const next = uiReducer(primed, { type: "setFilter", filter: "DONE" });
     expect(next.filter).toBe("DONE");
     expect(next.focusId).toBeNull();
-    expect(next.lastDeleted).toBeNull();
+    expect(next.lastUndo).toBeNull();
     expect(next.undoExpiresAt).toBeNull();
   });
 
@@ -48,28 +48,36 @@ describe("uiReducer", () => {
     ).toBe(initialUi);
   });
 
-  test("setLastDeleted sets a future undoExpiresAt", () => {
+  test("setUndo sets a future undoExpiresAt", () => {
     const before = Date.now();
     const next = uiReducer(initialUi, {
-      type: "setLastDeleted",
-      todos: [todo("a")],
+      type: "setUndo",
+      entry: { kind: "delete", todos: [todo("a")] },
     });
-    expect(next.lastDeleted).toHaveLength(1);
+    expect(next.lastUndo?.todos).toHaveLength(1);
     expect(next.undoExpiresAt ?? 0).toBeGreaterThanOrEqual(before);
   });
 
-  test("clearLastDeleted is no-op when already cleared", () => {
-    expect(uiReducer(initialUi, { type: "clearLastDeleted" })).toBe(initialUi);
+  test("setUndo records the snooze kind", () => {
+    const next = uiReducer(initialUi, {
+      type: "setUndo",
+      entry: { kind: "snooze", todos: [todo("a")] },
+    });
+    expect(next.lastUndo?.kind).toBe("snooze");
   });
 
-  test("clearLastDeleted wipes the undo buffer", () => {
+  test("clearUndo is no-op when already cleared", () => {
+    expect(uiReducer(initialUi, { type: "clearUndo" })).toBe(initialUi);
+  });
+
+  test("clearUndo wipes the undo buffer", () => {
     const primed = {
       ...initialUi,
-      lastDeleted: [todo("a")],
+      lastUndo: { kind: "delete" as const, todos: [todo("a")] },
       undoExpiresAt: 1,
     };
-    const next = uiReducer(primed, { type: "clearLastDeleted" });
-    expect(next.lastDeleted).toBeNull();
+    const next = uiReducer(primed, { type: "clearUndo" });
+    expect(next.lastUndo).toBeNull();
     expect(next.undoExpiresAt).toBeNull();
   });
 
