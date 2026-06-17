@@ -63,6 +63,7 @@ import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -382,7 +383,10 @@ fun TodoScreen(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TodoScreenContent(
-    todos: List<Todo>,
+    // `null` means the first snapshot hasn't arrived yet (cold start) — render
+    // a spinner rather than a false "no todos". A non-null empty list is a
+    // genuine empty state.
+    todos: List<Todo>?,
     focusId: String? = null,
     fastCreationId: String? = null,
     onCreateTodo: () -> Unit,
@@ -421,7 +425,8 @@ fun TodoScreenContent(
     }
 
     val filteredTodosByFilter = remember(todos, searchQuery) {
-        TAB_ORDER.associateWith { filter -> todos.filterAndSort(filter, searchQuery) }
+        val visible = todos ?: emptyList()
+        TAB_ORDER.associateWith { filter -> visible.filterAndSort(filter, searchQuery) }
     }
     val filteredTodos = filteredTodosByFilter[statusFilter] ?: emptyList()
 
@@ -594,7 +599,12 @@ fun TodoScreenContent(
                             focusManager.clearFocus()
                         }
                 ) {
-                    if (pageTodos.isEmpty()) {
+                    if (todos == null) {
+                        // First snapshot hasn't arrived yet (cold start, store
+                        // still loading from cache/network). Show a spinner so
+                        // we don't flash a false "no todos" before we know.
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    } else if (pageTodos.isEmpty()) {
                         val message = if (searchQuery.isBlank()) {
                             "No todos yet. Tap + to add one."
                         } else {
