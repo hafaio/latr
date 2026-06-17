@@ -18,11 +18,11 @@ export default function Page(): ReactElement {
     filter,
     search,
     focusId,
-    lastDeleted,
+    lastUndo,
     setFilter,
     setSearch,
     setFocus,
-    undoLastDelete,
+    undo,
   } = useTodos();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -88,21 +88,21 @@ export default function Page(): ReactElement {
   }, [focusId]);
 
   useEffect(() => {
-    // ⌘/Ctrl+Z restores the last delete while the undo chip is visible.
-    // Captured even inside text inputs so a freshly-deleted row beats the
-    // browser's native undo of an unrelated edit.
-    if (!lastDeleted) return;
+    // ⌘/Ctrl+Z reverts the last action (delete or snooze) while the undo chip
+    // is visible. Captured even inside text inputs so a freshly-deleted row
+    // beats the browser's native undo of an unrelated edit.
+    if (!lastUndo) return;
     function onKey(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "z") return;
       e.preventDefault();
       e.stopPropagation();
-      undoLastDelete();
+      undo();
     }
     window.addEventListener("keydown", onKey, { capture: true });
     return () =>
       window.removeEventListener("keydown", onKey, { capture: true });
-  }, [lastDeleted, undoLastDelete]);
+  }, [lastUndo, undo]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
