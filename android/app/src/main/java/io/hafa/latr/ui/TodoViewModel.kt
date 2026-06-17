@@ -25,9 +25,13 @@ class TodoViewModel(
     private val storeHolder: TodoStoreHolder,
     private val userPreferences: UserPreferences
 ) : ViewModel() {
-    val todos: StateFlow<List<Todo>> = storeHolder.store
+    // `null` until the live store delivers its first snapshot. On a signed-in
+    // cold start the store swaps to Firestore and its listener takes a beat to
+    // fire even from the local cache; surfacing null lets the UI show a spinner
+    // instead of a false "no todos" empty state during that window.
+    val todos: StateFlow<List<Todo>?> = storeHolder.store
         .flatMapLatest { it.observeAll() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _focusId = MutableStateFlow<String?>(null)
     val focusId: StateFlow<String?> = _focusId
