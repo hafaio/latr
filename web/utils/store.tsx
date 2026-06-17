@@ -22,11 +22,17 @@ import {
   type TodoState,
 } from "./todo";
 
+// A single, most-recent-wins undo buffer. "delete" restores via re-insert
+// (the rows are gone); "snooze" restores via update (the rows still exist,
+// just need their prior state/snoozeUntil/modifiedAt put back).
+export type UndoKind = "delete" | "snooze";
+export type UndoEntry = { kind: UndoKind; todos: Todo[] };
+
 export type UiState = {
   filter: Filter;
   search: string;
   focusId: string | null;
-  lastDeleted: Todo[] | null;
+  lastUndo: UndoEntry | null;
   undoExpiresAt: number | null;
   // Epoch of the most recent custom snooze pick this session; surfaces the
   // "Last" quick option. Session-only (resets on reload), like Android.
@@ -37,15 +43,15 @@ export type UiAction =
   | { type: "setFilter"; filter: Filter }
   | { type: "setSearch"; search: string }
   | { type: "setFocus"; id: string | null }
-  | { type: "setLastDeleted"; todos: Todo[] }
-  | { type: "clearLastDeleted" }
+  | { type: "setUndo"; entry: UndoEntry }
+  | { type: "clearUndo" }
   | { type: "setLastCustomSnooze"; epoch: number };
 
 export const initialUi: UiState = {
   filter: "ACTIVE",
   search: "",
   focusId: null,
-  lastDeleted: null,
+  lastUndo: null,
   undoExpiresAt: null,
   lastCustomSnooze: null,
 };
@@ -58,7 +64,7 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         ...state,
         filter: action.filter,
         focusId: null,
-        lastDeleted: null,
+        lastUndo: null,
         undoExpiresAt: null,
       };
     case "setSearch":
@@ -67,16 +73,15 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
     case "setFocus":
       if (state.focusId === action.id) return state;
       return { ...state, focusId: action.id };
-    case "setLastDeleted":
+    case "setUndo":
       return {
         ...state,
-        lastDeleted: action.todos,
+        lastUndo: action.entry,
         undoExpiresAt: Date.now() + 5000,
       };
-    case "clearLastDeleted":
-      if (state.lastDeleted === null && state.undoExpiresAt === null)
-        return state;
-      return { ...state, lastDeleted: null, undoExpiresAt: null };
+    case "clearUndo":
+      if (state.lastUndo === null && state.undoExpiresAt === null) return state;
+      return { ...state, lastUndo: null, undoExpiresAt: null };
     case "setLastCustomSnooze":
       return { ...state, lastCustomSnooze: action.epoch };
   }
@@ -96,7 +101,7 @@ type ContextShape = UiState & {
   remove: (id: string) => void;
   removeUndoable: (id: string) => void;
   clearAllDone: () => void;
-  undoLastDelete: () => void;
+  undo: () => void;
   setFilter: (f: Filter) => void;
   setSearch: (s: string) => void;
   setFocus: (id: string | null) => void;
@@ -149,10 +154,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     if (!ui.undoExpiresAt) return;
     const delta = ui.undoExpiresAt - Date.now();
     if (delta <= 0) {
-      dispatch({ type: "clearLastDeleted" });
+      dispatch({ type: "clearUndo" });
       return;
     }
-    const id = setTimeout(() => dispatch({ type: "clearLastDeleted" }), delta);
+    const id = setTimeout(() => dispatch({ type: "clearUndo" }), delta);
     return () => clearTimeout(id);
   }, [ui.undoExpiresAt]);
 
@@ -191,7 +196,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       void store.insert(todo);
       dispatch({ type: "setFocus", id: todo.id });
-      dispatch({ type: "clearLastDeleted" });
+      dispatch({ type: "clearUndo" });
       return todo;
     },
     [holder],
@@ -235,6 +240,12 @@ export function TodoProvider({ children }: { children: ReactNode }) {
         snoozeUntil: epochToIso(epoch),
         modifiedAt: Date.now(),
       });
+      // Buffer the pre-snooze snapshot so undo can restore its prior
+      // state/snoozeUntil/modifiedAt (and thus its prior sort position).
+      dispatch({
+        type: "setUndo",
+        entry: { kind: "snooze", todos: [existing] },
+      });
     },
     [holder],
   );
@@ -261,7 +272,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       if (!existing) return;
       void store.delete(existing);
       dispatch({ type: "setFocus", id: null });
-      dispatch({ type: "setLastDeleted", todos: [existing] });
+      dispatch({
+        type: "setUndo",
+        entry: { kind: "delete", todos: [existing] },
+      });
     },
     [holder],
   );
@@ -270,17 +284,26 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const cleared = await holder.getStore().clearAllDone();
       if (cleared.length > 0) {
-        dispatch({ type: "setLastDeleted", todos: cleared });
+        dispatch({
+          type: "setUndo",
+          entry: { kind: "delete", todos: cleared },
+        });
       }
     })();
   }, [holder]);
 
-  const undoLastDelete = useCallback(() => {
-    const cleared = ui.lastDeleted;
-    if (!cleared || cleared.length === 0) return;
-    void holder.getStore().restoreMany(cleared);
-    dispatch({ type: "clearLastDeleted" });
-  }, [holder, ui.lastDeleted]);
+  const undo = useCallback(() => {
+    const entry = ui.lastUndo;
+    if (!entry || entry.todos.length === 0) return;
+    const store = holder.getStore();
+    if (entry.kind === "delete") {
+      void store.restoreMany(entry.todos);
+    } else {
+      // Snooze undo: the rows still exist, so re-apply the prior snapshot.
+      for (const prior of entry.todos) void store.update(prior);
+    }
+    dispatch({ type: "clearUndo" });
+  }, [holder, ui.lastUndo]);
 
   const setFilter = useCallback((f: Filter) => {
     dispatch({ type: "setFilter", filter: f });
@@ -312,7 +335,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       remove,
       removeUndoable,
       clearAllDone,
-      undoLastDelete,
+      undo,
       setFilter,
       setSearch,
       setFocus,
@@ -333,7 +356,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       remove,
       removeUndoable,
       clearAllDone,
-      undoLastDelete,
+      undo,
       setFilter,
       setSearch,
       setFocus,
