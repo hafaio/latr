@@ -1,10 +1,14 @@
 "use client";
 
-import { type ReactElement, useEffect, useRef } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { FaSearch, FaSync } from "react-icons/fa";
 import { isEditableTarget } from "../utils/keyboard";
 import { useTodos } from "../utils/store";
 import { useOnlineStatus } from "../utils/use-online-status";
+
+// How long syncing must persist before the indicator appears, so brief
+// fromCache blips around writes don't flicker it.
+const SYNC_INDICATOR_DELAY_MS = 500;
 
 export default function TopBar({
   search,
@@ -17,9 +21,23 @@ export default function TopBar({
   const { syncing } = useTodos();
   const online = useOnlineStatus();
 
+  // Delay-show: `syncing` (Firestore fromCache) blips on/off around writes and
+  // metadata changes, which would flicker the icon. Only surface it once it has
+  // been syncing continuously for a beat; hide immediately when it settles, so
+  // transient blips never flash the spinner.
+  const [showSyncing, setShowSyncing] = useState(false);
+  useEffect(() => {
+    if (!syncing) {
+      setShowSyncing(false);
+      return;
+    }
+    const id = setTimeout(() => setShowSyncing(true), SYNC_INDICATOR_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [syncing]);
+
   // Indicator only shows while syncing; offline (no network to finish on)
   // swaps the spinner for a static amber arrow.
-  const indicator = !syncing
+  const indicator = !showSyncing
     ? null
     : online
       ? { className: "text-muted animate-spin", label: "Syncing" }

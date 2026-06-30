@@ -47,15 +47,25 @@ Track features and behavior here. When making changes, verify existing behavior 
 
 ### Sync Indicator (web)
 - The top-bar arrow only appears while syncing (Firestore snapshot is `fromCache` — not yet confirmed with the server); a confirmed-synced state shows nothing
+- **Delay-show debounce**: `fromCache` blips on/off around writes and metadata changes (`includeMetadataChanges: true`), which flickered the icon. `TopBar` only surfaces the indicator after `syncing` has been continuously true for `SYNC_INDICATOR_DELAY_MS` (500ms) and hides it immediately when it settles, so transient blips never flash the spinner; only a genuinely slow/offline sync shows it
 - While syncing and online: spinning muted arrow ("Syncing")
 - While syncing and offline (`navigator.onLine === false`): static amber arrow ("Offline — changes saved on this device")
 - Offline is subordinate to syncing — never shown when `!syncing`, since there's nothing pending to sync
 - Online status comes from `useOnlineStatus` (`utils/use-online-status.ts`), a `useSyncExternalStore` hook reading `navigator.onLine` live so online/offline event ordering can't leave a stale value
 
 ### Sort Order
-- Active: unsnoozed items by snoozeUntil (most recently unsnoozed first), regular items by modifiedAt descending
+- Active: pinned items first, then by snoozeUntil (unsnoozed, most recently unsnoozed first) else modifiedAt — both descending — with modifiedAt as a secondary tiebreak (among rows sharing an unsnooze time, the most recently modified sorts first)
 - Snoozed: by snooze time ascending
 - Done, All: by modifiedAt descending
+
+### Pinned
+- `pinned: boolean` on every todo, synced (web `toFirestoreFields`/`fromFirestore`, Android `toMap`/`fromMap`, Room column already in schema v9). Defaults to false.
+- Pinning only floats items to the top of the **Active** list; Snoozed (snooze-time order) and Done/All (modifiedAt order) ignore `pinned` so a time-ordered view isn't reshuffled. The pin affordance is shown on the Active filter only — web gates on the current `filter`, not `todo.state` (unsnoozed rows show in Active while still `state: "SNOOZED"`); Android gates via `onPin != null` (passed only for the Active page).
+- It's a toggle: the web button and the Android trailing icon read the current `pinned` and flip it (label "Unpin" when already pinned).
+- Toggling **bumps** `modifiedAt` (web `Date.now()`, Android `touchModifiedAt = true`) **and clears the was-snoozed marker** (`snoozeUntil = null`; web also forces `state: "ACTIVE"` so an expired-snooze row stays in the list) so the toggled row becomes a plain recent row and lands at the top of its group rather than snapping back to its old unsnooze-time position. Pin never arms or clears the undo buffer.
+- No scroll-into-view on toggle (deliberately removed). The `modifiedAt` bump already lands the row near the top of its group — a pinned row at the very top, an unpinned row just below the pinned rows — so it stays visible in the common case (toggling while at the top of the list). Chasing the row with a programmatic scroll wasn't worth the complexity: the row's `animateItem` reorder is mid-flight for a few hundred ms after the toggle, so any visibility check reads stale offsets, which forced a fixed settle delay and still misfired. The list just re-sorts (with its row animation) and the viewport stays put.
+- Web: the pin/unpin button is the **rightmost** button in the right action cluster (Active filter only, `showPin`). Unlike the other actions it doesn't hide at rest when the row is **pinned** — it stays visible (accent `FaThumbtack`) so a pinned row is identifiable, and the toggle is always one click away. When not pinned it behaves like the rest (hidden, fades in on hover). To do this the per-button visibility (`opacity`/`pointer-events`) moved off the cluster `<div>` onto each button via the shared `hoverAction` class, and the cluster background is now hover-only; the pin button just omits `hoverAction` when `todo.pinned`. The left/primary icon is unchanged (it stays the state icon — circle/clock/check).
+- Android: pin is a **trailing icon button** on each Active-list row (`onTogglePin` on `TodoItem`, passed only for the Active page) — not a swipe. Filled `PushPin` + primary tint when pinned, muted outline `PushPin` otherwise. The swipe gestures are unchanged (the original `SwipeToDismissBox`: complete/delete + snooze/reactivate). Chosen over a swipe because base Compose has no swipe-to-reveal for phones (only Wear OS does) and no library does the true iOS "partial-reveal + full-swipe-commit" combo; an always-visible icon is discoverable, accessible (TalkBack), and consistent with web's pin button.
 
 ### Fast Todo Compose Loop
 - When in fast compose mode with an empty todo, pressing Done should clear focus and delete the empty todo
