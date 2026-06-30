@@ -178,6 +178,43 @@ describe("sortForFilter", () => {
     expect(sorted).toEqual(["b", "c", "a"]);
   });
 
+  test("ACTIVE: a pinned item beats an unpinned just-unsnoozed item", () => {
+    // snoozeUntil drives the unsnoozed item's key, but pinned is a strict
+    // primary partition, so the pinned item still wins regardless.
+    const pinned = todo({ id: "pinned", modifiedAt: 100, pinned: true });
+    const unsnoozed = todo({
+      id: "unsnoozed",
+      modifiedAt: 50,
+      snoozeUntil: epochToIso(9_999_999_999_999),
+    });
+    const sorted = sortForFilter([unsnoozed, pinned], "ACTIVE").map(
+      (t) => t.id,
+    );
+    expect(sorted).toEqual(["pinned", "unsnoozed"]);
+  });
+
+  test("SNOOZED / DONE / ALL ignore pinned", () => {
+    const pinnedOld = todo({ id: "pinned", modifiedAt: 100, pinned: true });
+    const fresh = todo({ id: "fresh", modifiedAt: 900 });
+    expect(sortForFilter([pinnedOld, fresh], "DONE").map((t) => t.id)).toEqual([
+      "fresh",
+      "pinned",
+    ]);
+    expect(sortForFilter([pinnedOld, fresh], "ALL").map((t) => t.id)).toEqual([
+      "fresh",
+      "pinned",
+    ]);
+    const laterPinned = todo({
+      id: "later",
+      snoozeUntil: epochToIso(3000),
+      pinned: true,
+    });
+    const sooner = todo({ id: "sooner", snoozeUntil: epochToIso(1000) });
+    expect(
+      sortForFilter([laterPinned, sooner], "SNOOZED").map((t) => t.id),
+    ).toEqual(["sooner", "later"]);
+  });
+
   test("ACTIVE: snoozeUntil (when present) overrides modifiedAt as the sort key", () => {
     const a = todo({ id: "a", modifiedAt: 1000 });
     const b = todo({
@@ -187,6 +224,24 @@ describe("sortForFilter", () => {
     });
     const sorted = sortForFilter([a, b], "ACTIVE").map((t) => t.id);
     expect(sorted).toEqual(["b", "a"]);
+  });
+
+  test("ACTIVE: ties on unsnooze time break by modifiedAt desc", () => {
+    const sameUnsnooze = epochToIso(5000);
+    const older = todo({
+      id: "older",
+      modifiedAt: 100,
+      snoozeUntil: sameUnsnooze,
+    });
+    const newer = todo({
+      id: "newer",
+      modifiedAt: 200,
+      snoozeUntil: sameUnsnooze,
+    });
+    expect(sortForFilter([older, newer], "ACTIVE").map((t) => t.id)).toEqual([
+      "newer",
+      "older",
+    ]);
   });
 
   test("SNOOZED: earliest snoozeUntil first", () => {

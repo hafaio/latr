@@ -98,6 +98,7 @@ type ContextShape = UiState & {
   reactivate: (id: string) => void;
   snooze: (id: string, epoch: number) => void;
   recordCustomSnooze: (epoch: number) => void;
+  togglePinned: (id: string) => void;
   remove: (id: string) => void;
   removeUndoable: (id: string) => void;
   clearAllDone: () => void;
@@ -254,6 +255,26 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "setLastCustomSnooze", epoch });
   }, []);
 
+  const togglePinned = useCallback(
+    (id: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      // Bump modifiedAt and clear the was-snoozed marker (promoting an
+      // expired-snooze row to ACTIVE so it stays in the list) so the toggled
+      // row becomes a plain recent row and lands at the top of its group rather
+      // than a stale position. Pin never touches the undo buffer.
+      void store.update({
+        ...existing,
+        pinned: !existing.pinned,
+        state: "ACTIVE",
+        snoozeUntil: null,
+        modifiedAt: Date.now(),
+      });
+    },
+    [holder],
+  );
+
   const remove = useCallback(
     (id: string) => {
       const store = holder.getStore();
@@ -332,6 +353,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       reactivate,
       snooze,
       recordCustomSnooze,
+      togglePinned,
       remove,
       removeUndoable,
       clearAllDone,
@@ -353,6 +375,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       reactivate,
       snooze,
       recordCustomSnooze,
+      togglePinned,
       remove,
       removeUndoable,
       clearAllDone,

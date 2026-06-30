@@ -14,12 +14,14 @@ class TodoFilterTest {
         state: TodoState = TodoState.ACTIVE,
         modifiedAt: Long = 0L,
         snoozeUntil: String? = null,
+        pinned: Boolean = false,
     ): Todo = Todo(
         id = id,
         text = text,
         state = state,
         modifiedAt = modifiedAt,
         snoozeUntil = snoozeUntil,
+        pinned = pinned,
     )
 
     private fun iso(epoch: Long): String = LocalDateTimeUtil.fromEpochMillis(epoch)
@@ -55,6 +57,77 @@ class TodoFilterTest {
             .filterAndSort(StatusFilter.ACTIVE, "")
             .map { it.id }
         assertEquals(listOf("recent", "plain"), out)
+    }
+
+    @Test
+    fun `ACTIVE floats pinned todos above unpinned regardless of modifiedAt`() {
+        val pinnedOld = todo(id = "pinned", state = TodoState.ACTIVE, modifiedAt = 100, pinned = true)
+        val freshA = todo(id = "freshA", state = TodoState.ACTIVE, modifiedAt = 300)
+        val freshB = todo(id = "freshB", state = TodoState.ACTIVE, modifiedAt = 200)
+        val out = listOf(freshA, pinnedOld, freshB)
+            .filterAndSort(StatusFilter.ACTIVE, "")
+            .map { it.id }
+        assertEquals(listOf("pinned", "freshA", "freshB"), out)
+    }
+
+    @Test
+    fun `ACTIVE orders pinned todos among themselves by the normal key`() {
+        val older = todo(id = "older", state = TodoState.ACTIVE, modifiedAt = 100, pinned = true)
+        val newer = todo(id = "newer", state = TodoState.ACTIVE, modifiedAt = 200, pinned = true)
+        val out = listOf(older, newer)
+            .filterAndSort(StatusFilter.ACTIVE, "")
+            .map { it.id }
+        assertEquals(listOf("newer", "older"), out)
+    }
+
+    @Test
+    fun `DONE and ALL ignore pinned`() {
+        val pinnedOld = todo(id = "pinned", state = TodoState.DONE, modifiedAt = 100, pinned = true)
+        val fresh = todo(id = "fresh", state = TodoState.DONE, modifiedAt = 300)
+        assertEquals(
+            listOf("fresh", "pinned"),
+            listOf(pinnedOld, fresh).filterAndSort(StatusFilter.DONE, "").map { it.id },
+        )
+        assertEquals(
+            listOf("fresh", "pinned"),
+            listOf(pinnedOld, fresh).filterAndSort(StatusFilter.ALL, "").map { it.id },
+        )
+    }
+
+    @Test
+    fun `SNOOZED ignores pinned`() {
+        val laterPinned = todo(
+            id = "later",
+            state = TodoState.SNOOZED,
+            snoozeUntil = iso(10_000L),
+            pinned = true,
+        )
+        val sooner = todo(id = "sooner", state = TodoState.SNOOZED, snoozeUntil = iso(5_000L))
+        val out = listOf(laterPinned, sooner)
+            .filterAndSort(StatusFilter.SNOOZED, "")
+            .map { it.id }
+        assertEquals(listOf("sooner", "later"), out)
+    }
+
+    @Test
+    fun `ACTIVE breaks unsnooze-time ties by modifiedAt desc`() {
+        val sameUnsnooze = iso(5_000L)
+        val older = todo(
+            id = "older",
+            state = TodoState.ACTIVE,
+            modifiedAt = 100,
+            snoozeUntil = sameUnsnooze,
+        )
+        val newer = todo(
+            id = "newer",
+            state = TodoState.ACTIVE,
+            modifiedAt = 200,
+            snoozeUntil = sameUnsnooze,
+        )
+        val out = listOf(older, newer)
+            .filterAndSort(StatusFilter.ACTIVE, "")
+            .map { it.id }
+        assertEquals(listOf("newer", "older"), out)
     }
 
     @Test
