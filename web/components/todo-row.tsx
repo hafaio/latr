@@ -13,6 +13,7 @@ import {
   FaRegCircle,
   FaRegClock,
   FaRegTrashAlt,
+  FaThumbtack,
   FaUndo,
 } from "react-icons/fa";
 import { formatSnoozeTime } from "../utils/format";
@@ -47,6 +48,7 @@ function Hint({
 
 export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const {
+    filter,
     focusId,
     edit,
     markDone,
@@ -54,6 +56,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     snooze,
     recordCustomSnooze,
     lastCustomSnooze,
+    togglePinned,
     remove,
     removeUndoable,
     setFocus,
@@ -123,6 +126,10 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     isoToEpoch(todo.snoozeUntil) > Date.now();
   const wasUnsnoozed =
     !isDone && !isActivelySnoozed && todo.snoozeUntil !== null;
+  // Pin only affects the Active list's order, so the affordance lives there
+  // only (gate on the current filter, not todo.state — unsnoozed rows show in
+  // Active while still carrying state "SNOOZED").
+  const showPin = filter === "ACTIVE";
 
   function primaryToggle() {
     if (isDone) reactivate(todo.id);
@@ -140,6 +147,14 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   );
 
   const primaryLabel = isDone ? "Reactivate" : "Mark done";
+
+  // Action buttons hide at rest and fade in on hover/focus (or while the snooze
+  // popover is open). The pin button overrides this to stay visible when pinned.
+  const hoverAction =
+    "opacity-0 pointer-events-none transition-opacity " +
+    "group-hover/row:opacity-100 group-hover/row:pointer-events-auto " +
+    "group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto " +
+    "group-data-[keep-actions=true]/row:opacity-100 group-data-[keep-actions=true]/row:pointer-events-auto";
 
   return (
     <div
@@ -222,10 +237,9 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         className="
           absolute right-2 top-1
           flex items-center gap-0.5
-          bg-surface-hover rounded-lg
-          opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100
-          group-data-[keep-actions=true]/row:opacity-100
-          transition-opacity
+          rounded-lg transition-colors
+          group-hover/row:bg-surface-hover group-focus-within/row:bg-surface-hover
+          group-data-[keep-actions=true]/row:bg-surface-hover
         "
       >
         {isActivelySnoozed && (
@@ -235,7 +249,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
             onClick={() => reactivate(todo.id)}
             aria-label="Unsnooze"
             title="Unsnooze"
-            className="relative p-2 rounded-lg text-accent hover:bg-surface-muted transition-colors"
+            className={`relative p-2 rounded-lg text-accent hover:bg-surface-muted transition-colors ${hoverAction}`}
           >
             <FaUndo className={`text-sm ${showHints ? "invisible" : ""}`} />
             {showHints && <Hint>U</Hint>}
@@ -243,7 +257,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         )}
 
         {!isDone && (
-          <div className="relative">
+          <div className={`relative ${hoverAction}`}>
             <button
               type="button"
               data-action="snooze"
@@ -277,13 +291,34 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           onClick={() => removeUndoable(todo.id)}
           aria-label="Delete"
           title="Delete"
-          className="relative p-2 rounded-lg text-danger hover:bg-surface-muted transition-colors"
+          className={`relative p-2 rounded-lg text-danger hover:bg-surface-muted transition-colors ${hoverAction}`}
         >
           <FaRegTrashAlt
             className={`text-sm ${showHints ? "invisible" : ""}`}
           />
           {showHints && <Hint>⌫</Hint>}
         </button>
+
+        {showPin && (
+          <button
+            type="button"
+            data-action="pin"
+            // Don't take focus on click — otherwise the row's focus-within keeps
+            // it highlighted with the cluster open after a pin/unpin tap. The
+            // click still fires; pinning is purely a state toggle.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => togglePinned(todo.id)}
+            aria-label={todo.pinned ? "Unpin" : "Pin"}
+            title={todo.pinned ? "Unpin" : "Pin"}
+            // Rightmost action. Stays visible at rest when pinned; otherwise it
+            // hides and fades in on hover like the rest.
+            className={`relative p-2 rounded-lg hover:bg-surface-muted transition-colors ${
+              todo.pinned ? "text-accent" : `text-muted ${hoverAction}`
+            }`}
+          >
+            <FaThumbtack className="text-sm" />
+          </button>
+        )}
       </div>
     </div>
   );

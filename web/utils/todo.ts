@@ -119,7 +119,10 @@ export function sortForFilter(todos: readonly Todo[], filter: Filter): Todo[] {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         const ax = a.snoozeUntil ? isoToEpoch(a.snoozeUntil) : a.modifiedAt;
         const bx = b.snoozeUntil ? isoToEpoch(b.snoozeUntil) : b.modifiedAt;
-        return bx - ax;
+        if (bx !== ax) return bx - ax;
+        // Secondary key: among rows sharing a primary key (e.g. unsnoozed rows
+        // with the same unsnooze time) the most recently modified sorts first.
+        return b.modifiedAt - a.modifiedAt;
       });
       return copy;
     case "DONE":

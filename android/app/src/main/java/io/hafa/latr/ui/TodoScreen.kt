@@ -55,10 +55,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -656,6 +658,22 @@ fun TodoScreenContent(
                                         onClearFocus()
                                         onRequestSnooze(todo)
                                     },
+                                    // Pin reorders the Active list: bump modifiedAt
+                                    // (touch = true) AND clear the was-snoozed marker
+                                    // so the pinned row becomes a plain recent row and
+                                    // floats to the top of its group. (Unsnoozed rows
+                                    // that aren't pinned still sort by unsnooze time,
+                                    // then modifiedAt.)
+                                    onTogglePin = if (pageFilter == StatusFilter.ACTIVE) {
+                                        {
+                                            onUpdateTodo(
+                                                todo.copy(pinned = !todo.pinned, snoozeUntil = null),
+                                                true,
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     onCreateNewTodo = onCreateTodo,
                                     modifier = Modifier.animateItem()
                                 )
@@ -723,6 +741,9 @@ fun TodoItem(
     onDelete: () -> Unit,
     onSwipeDelete: () -> Unit = onDelete,
     onSnooze: () -> Unit,
+    // Pin toggle shown as a trailing icon. Null hides it on filters where
+    // pinning has no effect (everything but the Active list).
+    onTogglePin: (() -> Unit)? = null,
     onCreateNewTodo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -867,7 +888,7 @@ fun TodoItem(
                 tint = stateIconTint,
                 modifier = Modifier.padding(end = 12.dp)
             )
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
                 BasicTextField(
                     value = text,
                     onValueChange = { newValue ->
@@ -935,6 +956,22 @@ fun TodoItem(
                         text = LocalDateTimeUtil.formatSnoozeTime(millis, context),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+            // Trailing pin toggle, shown only where pinning reorders the list
+            // (the Active filter). Filled + primary when pinned, a muted outline
+            // otherwise so unpinned rows stay quiet.
+            if (onTogglePin != null) {
+                IconButton(onClick = onTogglePin) {
+                    Icon(
+                        imageVector = if (todo.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (todo.pinned) "Unpin" else "Pin",
+                        tint = if (todo.pinned) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
             }
