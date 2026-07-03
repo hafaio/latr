@@ -71,15 +71,13 @@ class TodoStoreHolder(
      * state change swap the live store. If auth is already signed in the
      * merge runs against the current user.
      */
-    suspend fun signIn() {
-        val am = authManager ?: return
-        val result = am.signInWithGoogle()
-        val user = result.getOrNull() ?: return
-        try {
-            mergeRoomIntoFirestore(user.uid)
-        } catch (e: Exception) {
-            Log.e(TAG, "sign-in merge failed", e)
-        }
+    suspend fun signIn(): Result<Unit> {
+        val am = authManager ?: return Result.success(Unit)
+        // A cancelled prompt is a no-op success; only a merge failure propagates.
+        val user = am.signInWithGoogle().getOrNull() ?: return Result.success(Unit)
+        return runCatching { mergeRoomIntoFirestore(user.uid) }
+            .onFailure { Log.e(TAG, "sign-in merge failed", it) }
+            .map { }
     }
 
     /**
@@ -96,10 +94,14 @@ class TodoStoreHolder(
      * todos are preserved), wipes the remote collection, then deletes the
      * Firebase auth user (which triggers sign-out).
      */
-    suspend fun deleteAccount() {
+    suspend fun deleteAccount(): Result<Unit> {
+        val am = authManager ?: return Result.success(Unit)
+        // Reauth before wiping: a delete() that fails post-wipe could snapshot the empty remote over Room.
+        val reauth = am.reauthenticateWithGoogle()
+        if (reauth.isFailure) return reauth
         snapshotFirestoreIntoRoom()
         currentFirestoreStore?.deleteAll()
-        authManager?.deleteCurrentUser()
+        return am.deleteCurrentUser()
     }
 
     /**

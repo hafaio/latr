@@ -44,6 +44,9 @@ export default function AuthMenu(): ReactElement {
       await holder.signIn();
     } catch (e) {
       console.error(e);
+      alert(
+        "Signed in, but syncing edits made on this device failed — they're still saved here. Please try signing in again.",
+      );
     }
   }
 
@@ -68,7 +71,7 @@ export default function AuthMenu(): ReactElement {
       await holder.deleteAccount();
     } catch (e) {
       console.error(e);
-      alert("Delete failed. You may need to sign in again recently and retry.");
+      alert("Delete failed — nothing was removed. Please try again.");
     }
   }
 
