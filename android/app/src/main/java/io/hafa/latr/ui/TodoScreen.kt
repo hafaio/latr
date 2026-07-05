@@ -140,6 +140,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+
+private const val DAY_MILLIS = 24L * 60 * 60 * 1000
 
 private fun StatusFilter.displayName(): String =
     name.lowercase().replaceFirstChar { it.uppercase() }
@@ -1048,12 +1051,12 @@ fun TodoItem(
                     )
                 }
                 if (todo.snoozeUntil != null) {
-                    // Memoized: formatSnoozeTime allocates and would otherwise run per row on scroll.
-                    val snoozeLabel = remember(todo.snoozeUntil) {
-                        LocalDateTimeUtil.formatSnoozeTime(
-                            LocalDateTimeUtil.toEpochMillis(todo.snoozeUntil),
-                            context,
-                        )
+                    val snoozeMillis = LocalDateTimeUtil.toEpochMillis(todo.snoozeUntil)
+                    // Re-key on the 24h boundary (where formatSnoozeTime's format flips) so an aged row re-formats; still memoized for scroll.
+                    val within24h =
+                        abs(snoozeMillis - System.currentTimeMillis()) < DAY_MILLIS
+                    val snoozeLabel = remember(snoozeMillis, within24h) {
+                        LocalDateTimeUtil.formatSnoozeTime(snoozeMillis, context)
                     }
                     Text(
                         text = snoozeLabel,
