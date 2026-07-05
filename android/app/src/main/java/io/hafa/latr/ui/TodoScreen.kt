@@ -378,8 +378,8 @@ fun TodoScreen(
                     if (result.isFailure) {
                         Toast.makeText(
                             context,
-                            "Signed in, but syncing this device's edits failed — " +
-                                "they're still saved here. Please try again.",
+                            "Sign-in didn't complete, or syncing this device's edits " +
+                                "failed — your local todos are safe. Please try again.",
                             Toast.LENGTH_LONG
                         ).show()
                     }
