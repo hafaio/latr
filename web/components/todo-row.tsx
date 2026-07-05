@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { BsPinAngle } from "react-icons/bs";
 import {
   FaCheckCircle,
   FaClock,
@@ -138,6 +139,8 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
 
   const primaryIcon = isDone ? (
     <FaCheckCircle className="text-done text-base" />
+  ) : todo.pinned ? (
+    <BsPinAngle className="text-accent text-base" />
   ) : isActivelySnoozed ? (
     <FaClock className="text-snooze text-base" />
   ) : wasUnsnoozed ? (
@@ -149,7 +152,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const primaryLabel = isDone ? "Reactivate" : "Mark done";
 
   // Action buttons hide at rest and fade in on hover/focus (or while the snooze
-  // popover is open). The pin button overrides this to stay visible when pinned.
+  // popover is open).
   const hoverAction =
     "opacity-0 pointer-events-none transition-opacity " +
     "group-hover/row:opacity-100 group-hover/row:pointer-events-auto " +
@@ -285,6 +288,25 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           </div>
         )}
 
+        {showPin && (
+          <button
+            type="button"
+            data-action="pin"
+            // Don't take focus on click — otherwise the row's focus-within keeps
+            // it highlighted with the cluster open after a pin/unpin tap. The
+            // click still fires; pinning is purely a state toggle.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => togglePinned(todo.id)}
+            aria-label={todo.pinned ? "Unpin" : "Pin"}
+            title={todo.pinned ? "Unpin" : "Pin"}
+            className={`relative p-2 rounded-lg hover:bg-surface-muted transition-colors ${hoverAction} ${
+              todo.pinned ? "text-accent" : "text-muted"
+            }`}
+          >
+            <FaThumbtack className="text-sm" />
+          </button>
+        )}
+
         <button
           type="button"
           data-action="delete"
@@ -298,27 +320,6 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
           />
           {showHints && <Hint>⌫</Hint>}
         </button>
-
-        {showPin && (
-          <button
-            type="button"
-            data-action="pin"
-            // Don't take focus on click — otherwise the row's focus-within keeps
-            // it highlighted with the cluster open after a pin/unpin tap. The
-            // click still fires; pinning is purely a state toggle.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => togglePinned(todo.id)}
-            aria-label={todo.pinned ? "Unpin" : "Pin"}
-            title={todo.pinned ? "Unpin" : "Pin"}
-            // Rightmost action. Stays visible at rest when pinned; otherwise it
-            // hides and fades in on hover like the rest.
-            className={`relative p-2 rounded-lg hover:bg-surface-muted transition-colors ${
-              todo.pinned ? "text-accent" : `text-muted ${hoverAction}`
-            }`}
-          >
-            <FaThumbtack className="text-sm" />
-          </button>
-        )}
       </div>
     </div>
   );
