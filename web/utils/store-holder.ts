@@ -3,6 +3,7 @@
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithPopup,
   signInWithPopup,
   type User,
 } from "firebase/auth";
@@ -41,8 +42,13 @@ export class TodoStoreHolder {
   private user: User | null = null;
 
   constructor() {
+    this.setup();
+  }
+
+  /** Idempotent; re-run after [dispose] to survive a StrictMode double-mount. */
+  setup(): void {
     this.wireStoreListener();
-    if (firebaseConfigured()) {
+    if (!this.unsubAuth && firebaseConfigured()) {
       this.unsubAuth = onAuthStateChanged(auth(), (u) => {
         const prevUid = this.user?.uid ?? null;
         this.user = u;
@@ -83,12 +89,16 @@ export class TodoStoreHolder {
     if (!firebaseConfigured()) {
       throw new Error("firebase not configured");
     }
-    const result = await signInWithPopup(auth(), new GoogleAuthProvider());
+    let uid: string;
     try {
-      await this.mergeLocalIntoFirestore(result.user.uid);
+      const result = await signInWithPopup(auth(), new GoogleAuthProvider());
+      uid = result.user.uid;
     } catch (e) {
-      console.error("sign-in merge failed", e);
+      // Cancelled popup is benign; a merge failure below propagates.
+      console.error("sign-in popup failed", e);
+      return;
     }
+    await this.mergeLocalIntoFirestore(uid);
   }
 
   /**
@@ -106,9 +116,13 @@ export class TodoStoreHolder {
    * deletes the Firebase auth user (which triggers sign-out).
    */
   async deleteAccount(): Promise<void> {
+    const user = this.user;
+    if (!user) return;
+    // Reauth before wiping: a delete() that fails post-wipe could snapshot the empty remote over local.
+    await reauthenticateWithPopup(user, new GoogleAuthProvider());
     await this.snapshotFirestoreIntoLocal();
     if (this.firestoreStore) await this.firestoreStore.deleteAll();
-    await this.user?.delete();
+    await user.delete();
   }
 
   /** Reattach the Firestore snapshot listener (after tab wake / online). */

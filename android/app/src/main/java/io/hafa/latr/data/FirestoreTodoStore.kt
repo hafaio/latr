@@ -8,8 +8,10 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 import io.hafa.latr.util.LocalDateTimeUtil
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -38,14 +40,27 @@ class FirestoreTodoStore(
 
     override fun observeAll(): Flow<List<Todo>> = callbackFlow {
         val reg = collection.addSnapshotListener { snap, err ->
-            if (err != null || snap == null) return@addSnapshotListener
-            val todos = snap.documents.mapNotNull { doc ->
-                val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
-                if (todo.deleted) null else todo
+            // A delivered error terminates this listener; propagate so retryWhen
+            // re-collects and registers a fresh one.
+            if (err != null) close(err)
+            else if (snap != null) {
+                trySend(
+                    snap.documents.mapNotNull { doc ->
+                        val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
+                        if (todo.deleted) null else todo
+                    }
+                )
             }
-            trySend(todos)
         }
         awaitClose { reg.remove() }
+    }.retryWhen { cause, attempt ->
+        val backoff = minOf(
+            MAX_RETRY_DELAY_MS,
+            BASE_RETRY_DELAY_MS shl attempt.toInt().coerceAtMost(RETRY_SHIFT_CAP),
+        )
+        Log.w(TAG, "snapshot listener error; retrying in ${backoff}ms", cause)
+        delay(backoff)
+        true
     }
 
     override suspend fun snapshot(): List<Todo> {
@@ -152,5 +167,8 @@ class FirestoreTodoStore(
 
     companion object {
         private const val TAG = "FirestoreTodoStore"
+        private const val BASE_RETRY_DELAY_MS = 1_000L
+        private const val MAX_RETRY_DELAY_MS = 30_000L
+        private const val RETRY_SHIFT_CAP = 5
     }
 }

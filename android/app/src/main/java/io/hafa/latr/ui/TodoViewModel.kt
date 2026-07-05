@@ -199,26 +199,26 @@ class TodoViewModel(
     }
 
     fun clearAllDone() {
-        // Arm synchronously: the "Clear all done" button only shows for a
-        // non-empty list, so there's always something to undo, and showing the
-        // chip now (rather than after the async clear) avoids a flicker as the
-        // list empties out from under the bottom bar.
+        // Buffer synchronously; the async clear below would leave undo empty on an early tap.
+        val doneTodos = todos.value?.filter { it.state == TodoState.DONE }.orEmpty()
+        if (doneTodos.isEmpty()) return
+        _lastAction = UndoableAction.Delete(doneTodos)
         armUndo()
         viewModelScope.launch {
-            _lastAction = UndoableAction.Delete(currentStore().clearAllDone())
+            currentStore().clearAllDone()
         }
     }
 
-    fun signIn() {
-        viewModelScope.launch { storeHolder.signIn() }
+    fun signIn(onResult: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch { onResult(storeHolder.signIn()) }
     }
 
     fun signOut() {
         viewModelScope.launch { storeHolder.signOut() }
     }
 
-    fun deleteAccount() {
-        viewModelScope.launch { storeHolder.deleteAccount() }
+    fun deleteAccount(onResult: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch { onResult(storeHolder.deleteAccount()) }
     }
 
     fun undoLastAction() {

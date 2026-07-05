@@ -19,6 +19,9 @@ import { fromFirestore, type Todo, toFirestoreFields } from "./todo";
 
 const STORAGE_KEY = "latr:todos:v1";
 
+const BASE_RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 30_000;
+
 function rehydrateTimestamp(v: unknown): Timestamp | null {
   if (v === null || v === undefined) return null;
   else if (v instanceof Timestamp) return v;
@@ -214,6 +217,8 @@ export class FirestoreTodoStore extends BaseTodoStore {
   // connection. Flips back to true if the stream drops (e.g. tab backgrounded
   // long enough for the WebChannel to close) until we reconnect.
   private fromCache = true;
+  private retryAttempt = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(uid: string) {
     super();
@@ -226,10 +231,15 @@ export class FirestoreTodoStore extends BaseTodoStore {
   }
 
   /**
-   * Re-establish the snapshot listener if a previous error cleared it (e.g.
-   * the WebChannel stream dropped while the tab was backgrounded).
+   * Try immediately instead of waiting out the backoff — called on tab-wake /
+   * online, moments when a failed listener is likely to succeed again.
    */
   reattach(): void {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.retryAttempt = 0;
     if (!this.unsubscribe) this.attach();
   }
 
@@ -349,6 +359,10 @@ export class FirestoreTodoStore extends BaseTodoStore {
   }
 
   dispose(): void {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
@@ -366,6 +380,8 @@ export class FirestoreTodoStore extends BaseTodoStore {
       // doc data changed, so the sync indicator can reflect reconnect state.
       { includeMetadataChanges: true },
       (snap) => {
+        // A server-confirmed emission means the listener is healthy again.
+        if (!snap.metadata.fromCache) this.retryAttempt = 0;
         this.todos = snap.docs
           .map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>))
           .filter((t) => !t.deleted);
@@ -373,13 +389,27 @@ export class FirestoreTodoStore extends BaseTodoStore {
         this.emit();
       },
       (err) => {
+        // A delivered error terminates this listener; re-register with backoff.
         console.error("firestore snapshot", err);
-        // Clear the handle so reattach can re-subscribe after a stream drop.
         this.unsubscribe = null;
         this.fromCache = true;
         this.emit();
+        this.scheduleReattach();
       },
     );
+  }
+
+  private scheduleReattach(): void {
+    if (this.retryTimer !== null) return;
+    const backoff = Math.min(
+      MAX_RETRY_DELAY_MS,
+      BASE_RETRY_DELAY_MS * 2 ** this.retryAttempt,
+    );
+    this.retryAttempt++;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.attach();
+    }, backoff);
   }
 
   private withServerTs(todo: Todo): Record<string, unknown> {
