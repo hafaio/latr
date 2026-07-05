@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -56,7 +57,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -93,6 +93,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -110,8 +111,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -772,43 +776,63 @@ fun TodoItem(
     onSwipeDelete: () -> Unit = onDelete,
     onComplete: () -> Unit = { onUpdate(todo.copy(state = TodoState.DONE, snoozeUntil = null), true) },
     onSnooze: () -> Unit,
-    // Pin toggle shown as a trailing icon. Null hides it on filters where
-    // pinning has no effect (everything but the Active list).
+    // Null disables pinning (passed only for the Active filter).
     onTogglePin: (() -> Unit)? = null,
     onCreateNewTodo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var text by remember(todo.id) { mutableStateOf(todo.text) }
+    // At rest the row is a plain Text; tapping swaps in the editor (`editing` gates it).
+    var editing by remember(todo.id) { mutableStateOf(false) }
+    var fieldValue by remember(todo.id) { mutableStateOf(TextFieldValue(todo.text)) }
+    // Tap offset into the text, or null if the tap missed it (→ caret to end).
+    var caretFromTap by remember(todo.id) { mutableStateOf<Int?>(null) }
+    var textLayoutResult by remember(todo.id) { mutableStateOf<TextLayoutResult?>(null) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     var hasFocused by remember { mutableStateOf(false) }
-    var isFocused by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Picks up external text changes (e.g. remote edits) only while the field
-    // isn't focused, so the user's in-flight typing is never clobbered.
-    LaunchedEffect(todo.text, isFocused) {
-        if (!isFocused && text != todo.text) text = todo.text
-    }
-
-    // Use rememberUpdatedState to avoid stale closures in the swipe callback
+    // rememberUpdatedState: the gesture blocks are keyed on todo.id, so they'd otherwise capture stale closures.
     val currentTodo by rememberUpdatedState(todo)
     val currentOnUpdate by rememberUpdatedState(onUpdate)
     val currentOnDelete by rememberUpdatedState(onDelete)
     val currentOnSwipeDelete by rememberUpdatedState(onSwipeDelete)
     val currentOnComplete by rememberUpdatedState(onComplete)
-    val currentText by rememberUpdatedState(text)
+    val currentFieldText by rememberUpdatedState(fieldValue.text)
     val currentOnSnooze by rememberUpdatedState(onSnooze)
+    // Long-press pin: haptic + toggle, no-op when onTogglePin is null.
+    val currentOnPinLongPress by rememberUpdatedState<() -> Unit>({
+        onTogglePin?.let { toggle ->
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            toggle()
+        }
+    })
+
+    // Enter edit mode with the caret at [caret] (clamped).
+    val enterEdit: (Int) -> Unit = { caret ->
+        val full = currentTodo.text
+        fieldValue = TextFieldValue(full, TextRange(caret.coerceIn(0, full.length)))
+        editing = true
+    }
 
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.4f },
     )
 
+    // Programmatic focus (new todo, scroll-to-focus): open the editor, caret at end.
     LaunchedEffect(shouldRequestFocus) {
         if (shouldRequestFocus && !hasFocused) {
-            focusRequester.requestFocus()
+            fieldValue = TextFieldValue(todo.text, TextRange(todo.text.length))
+            editing = true
+        }
+    }
+    LaunchedEffect(editing) {
+        if (editing) {
+            // Wait a frame so the just-composed field's FocusRequester is attached.
+            withFrameNanos { }
+            runCatching { focusRequester.requestFocus() }
         }
     }
 
@@ -905,83 +929,120 @@ fun TodoItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface)
+                // combinedClickable (not detectTapGestures) so taps arbitrate with the swipe/scroll parents.
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        if (!editing) enterEdit(caretFromTap ?: currentTodo.text.length)
+                        caretFromTap = null
+                    },
+                    onLongClick = {
+                        currentOnPinLongPress()
+                        caretFromTap = null
+                    },
+                )
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             val colorScheme = MaterialTheme.colorScheme
             val (stateIcon, stateIconTint) = when {
                 todo.state == TodoState.DONE -> Icons.Filled.CheckCircle to colorScheme.primary
+                todo.pinned -> Icons.Outlined.PushPin to colorScheme.primary
                 todo.state == TodoState.SNOOZED -> Icons.Filled.Notifications to colorScheme.tertiary
                 todo.snoozeUntil != null -> Icons.Outlined.Notifications to colorScheme.tertiary  // Was snoozed, now active
                 else -> Icons.Default.RadioButtonUnchecked to colorScheme.onSurfaceVariant
             }
+            // Shared by the display Text and editor so entering edit doesn't shift the text.
+            val editorTextStyle = TextStyle(
+                fontSize = 16.sp,
+                color = if (todo.state == TodoState.DONE) colorScheme.onSurfaceVariant
+                else colorScheme.onSurface,
+                textDecoration = if (todo.state == TodoState.DONE)
+                    TextDecoration.LineThrough else TextDecoration.None,
+            )
+            val placeholderTextStyle = TextStyle(
+                fontSize = 16.sp,
+                color = colorScheme.onSurfaceVariant,
+            )
             Icon(
                 imageVector = stateIcon,
-                contentDescription = null,
+                contentDescription = if (todo.pinned) "Pinned" else null,
                 tint = stateIconTint,
                 modifier = Modifier.padding(end = 12.dp)
             )
             Column(modifier = Modifier.weight(1f)) {
-                BasicTextField(
-                    value = text,
-                    onValueChange = { newValue ->
-                        if (!newValue.contains('\n')) {
-                            text = newValue
-                            val edited = if (currentTodo.state == TodoState.ACTIVE) {
-                                currentTodo.copy(text = newValue, snoozeUntil = null)
-                            } else {
-                                currentTodo.copy(text = newValue)
+                if (editing) {
+                    BasicTextField(
+                        value = fieldValue,
+                        onValueChange = { newValue ->
+                            if (!newValue.text.contains('\n')) {
+                                fieldValue = newValue
+                                val edited = if (currentTodo.state == TodoState.ACTIVE) {
+                                    currentTodo.copy(text = newValue.text, snoozeUntil = null)
+                                } else {
+                                    currentTodo.copy(text = newValue.text)
+                                }
+                                currentOnUpdate(edited, false)
                             }
-                            currentOnUpdate(edited, false)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    hasFocused = true
+                                    onFocused(todo.id)
+                                } else if (hasFocused) {
+                                    editing = false
+                                    onBlurred(todo.id)
+                                    if (currentFieldText.isEmpty()) {
+                                        currentOnDelete()
+                                    }
+                                }
+                            },
+                        textStyle = editorTextStyle,
+                        cursorBrush = SolidColor(colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = if (isInFastComposeMode && fieldValue.text.isNotEmpty())
+                                ImeAction.Next else ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = {
+                                if (fieldValue.text.isNotEmpty()) {
+                                    onCreateNewTodo()
+                                }
+                            },
+                            onDone = {
+                                focusManager.clearFocus()
+                            }
+                        ),
+                        decorationBox = { innerTextField ->
+                            if (fieldValue.text.isEmpty()) {
+                                Text(text = "Enter todo...", style = placeholderTextStyle)
+                            }
+                            innerTextField()
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { focusState ->
-                            isFocused = focusState.isFocused
-                            if (focusState.isFocused) {
-                                hasFocused = true
-                                onFocused(todo.id)
-                            } else if (hasFocused) {
-                                onBlurred(todo.id)
-                                if (currentText.isEmpty()) {
-                                    currentOnDelete()
+                    )
+                } else {
+                    // Passively record the tap's caret offset (Initial pass, no consume) so onClick opens there.
+                    Text(
+                        text = todo.text.ifEmpty { "Enter todo..." },
+                        style = if (todo.text.isEmpty()) placeholderTextStyle else editorTextStyle,
+                        onTextLayout = { textLayoutResult = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(todo.id) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(
+                                        requireUnconsumed = false,
+                                        pass = PointerEventPass.Initial,
+                                    )
+                                    caretFromTap =
+                                        textLayoutResult?.getOffsetForPosition(down.position)
                                 }
                             }
-                        },
-                    textStyle = TextStyle(
-                        fontSize = 16.sp,
-                        color = if (todo.state == TodoState.DONE)
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        else
-                            MaterialTheme.colorScheme.onSurface,
-                        textDecoration = if (todo.state == TodoState.DONE) TextDecoration.LineThrough else TextDecoration.None
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        imeAction = if (isInFastComposeMode && text.isNotEmpty()) ImeAction.Next else ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onNext = {
-                            if (text.isNotEmpty()) {
-                                onCreateNewTodo()
-                            }
-                        },
-                        onDone = {
-                            focusManager.clearFocus()
-                        }
-                    ),
-                    decorationBox = { innerTextField ->
-                        if (text.isEmpty()) {
-                            Text(
-                                text = "Enter todo...",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 16.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
+                    )
+                }
                 if (todo.snoozeUntil != null) {
                     // Memoized: formatSnoozeTime allocates and would otherwise run per row on scroll.
                     val snoozeLabel = remember(todo.snoozeUntil) {
@@ -994,22 +1055,6 @@ fun TodoItem(
                         text = snoozeLabel,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary
-                    )
-                }
-            }
-            // Trailing pin toggle, shown only where pinning reorders the list
-            // (the Active filter). Filled + primary when pinned, a muted outline
-            // otherwise so unpinned rows stay quiet.
-            if (onTogglePin != null) {
-                IconButton(onClick = onTogglePin) {
-                    Icon(
-                        imageVector = if (todo.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (todo.pinned) "Unpin" else "Pin",
-                        tint = if (todo.pinned) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
                     )
                 }
             }
