@@ -318,6 +318,7 @@ fun TodoScreen(
         onUpdateTodo = { todo, touch -> viewModel.updateTodo(todo, touch) },
         onDeleteTodo = { viewModel.deleteTodo(it) },
         onSwipeDeleteTodo = { viewModel.deleteTodoUndoable(it) },
+        onCompleteTodo = { viewModel.completeUndoable(it) },
         onRefresh = { viewModel.unsnoozeExpired() },
         onTodoFocused = { todoId -> viewModel.setFocusId(todoId) },
         onTodoBlurred = { todoId -> viewModel.clearFocusId(todoId) },
@@ -418,6 +419,7 @@ fun TodoScreenContent(
     onUpdateTodo: (Todo, Boolean) -> Unit,
     onDeleteTodo: (Todo) -> Unit,
     onSwipeDeleteTodo: (Todo) -> Unit = onDeleteTodo,
+    onCompleteTodo: (Todo) -> Unit = { onUpdateTodo(it, true) },
     onRefresh: () -> Unit,
     onTodoFocused: (String) -> Unit,
     onTodoBlurred: (String) -> Unit = {},
@@ -676,6 +678,11 @@ fun TodoScreenContent(
                                         onClearFocus()
                                         onSwipeDeleteTodo(todo)
                                     },
+                                    onComplete = {
+                                        focusManager.clearFocus()
+                                        onClearFocus()
+                                        onCompleteTodo(todo)
+                                    },
                                     onSnooze = {
                                         focusManager.clearFocus()
                                         onClearFocus()
@@ -763,6 +770,7 @@ fun TodoItem(
     onUpdate: (Todo, Boolean) -> Unit,
     onDelete: () -> Unit,
     onSwipeDelete: () -> Unit = onDelete,
+    onComplete: () -> Unit = { onUpdate(todo.copy(state = TodoState.DONE, snoozeUntil = null), true) },
     onSnooze: () -> Unit,
     // Pin toggle shown as a trailing icon. Null hides it on filters where
     // pinning has no effect (everything but the Active list).
@@ -790,6 +798,7 @@ fun TodoItem(
     val currentOnUpdate by rememberUpdatedState(onUpdate)
     val currentOnDelete by rememberUpdatedState(onDelete)
     val currentOnSwipeDelete by rememberUpdatedState(onSwipeDelete)
+    val currentOnComplete by rememberUpdatedState(onComplete)
     val currentText by rememberUpdatedState(text)
     val currentOnSnooze by rememberUpdatedState(onSnooze)
 
@@ -833,7 +842,7 @@ fun TodoItem(
                 SwipeToDismissBoxValue.EndToStart to TodoState.DONE -> currentOnSwipeDelete()
                 SwipeToDismissBoxValue.EndToStart to TodoState.SNOOZED,
                 SwipeToDismissBoxValue.EndToStart to TodoState.ACTIVE ->
-                    currentOnUpdate(currentTodo.copy(state = TodoState.DONE, snoozeUntil = null), true)
+                    currentOnComplete()
 
                 SwipeToDismissBoxValue.StartToEnd to TodoState.DONE,
                 SwipeToDismissBoxValue.StartToEnd to TodoState.SNOOZED ->

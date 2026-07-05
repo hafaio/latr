@@ -16,9 +16,11 @@ export default function ClearAllDoneBar(): ReactElement | null {
   const undoLabel =
     lastUndo?.kind === "snooze"
       ? "Snoozed"
-      : `Deleted ${lastUndo?.todos.length} todo${
-          lastUndo && lastUndo.todos.length === 1 ? "" : "s"
-        }`;
+      : lastUndo?.kind === "complete"
+        ? "Completed"
+        : `Deleted ${lastUndo?.todos.length} todo${
+            lastUndo && lastUndo.todos.length === 1 ? "" : "s"
+          }`;
 
   return (
     <div className="sticky bottom-0 bg-bg/90 backdrop-blur">
