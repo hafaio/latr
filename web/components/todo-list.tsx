@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactElement, useMemo } from "react";
-import { groupByModifiedAt, groupBySnoozeUntil } from "../utils/group";
+import { groupForFilter } from "../utils/group";
 import { useTodos } from "../utils/store";
 import {
   type Filter,
@@ -25,12 +25,8 @@ export default function TodoList(): ReactElement {
       };
     }
     const sorted = sortForFilter(filtered, filter);
-    const buckets =
-      filter === "SNOOZED"
-        ? groupBySnoozeUntil(sorted, now)
-        : groupByModifiedAt(sorted, now);
     return {
-      groups: buckets,
+      groups: groupForFilter(sorted, filter, now),
       total: sorted.length,
     };
   }, [todos, filter, search]);
