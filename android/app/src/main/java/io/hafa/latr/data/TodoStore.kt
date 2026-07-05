@@ -20,7 +20,7 @@ interface TodoStore {
 
     suspend fun delete(todo: Todo)
 
-    suspend fun clearAllDone(): List<Todo>
+    suspend fun clearAllDone(done: List<Todo>)
     suspend fun restoreMany(todos: List<Todo>)
     suspend fun deleteEmptyTodosExcept(exceptId: String)
     suspend fun getExpiredSnoozed(nowIso: String): List<Todo>
