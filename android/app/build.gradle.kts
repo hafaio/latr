@@ -49,6 +49,12 @@ kotlin {
     }
 }
 
+composeCompiler {
+    stabilityConfigurationFiles.add(
+        rootProject.layout.projectDirectory.file("app/compose_stability.conf")
+    )
+}
+
 room {
     schemaDirectory("$projectDir/schemas")
 }

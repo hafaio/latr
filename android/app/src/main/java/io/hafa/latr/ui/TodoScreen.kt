@@ -9,6 +9,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -410,7 +412,7 @@ fun TodoScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TodoScreenContent(
     // `null` means the first snapshot hasn't arrived yet (cold start) — render
@@ -449,7 +451,8 @@ fun TodoScreenContent(
     var savedPage by rememberSaveable { mutableIntStateOf(TAB_ORDER.indexOf(initialStatusFilter)) }
     val pagerState = rememberPagerState(initialPage = savedPage) { TAB_ORDER.size }
     val statusFilter = TAB_ORDER[pagerState.settledPage]
-    val listStates = TAB_ORDER.map { rememberLazyListState() }
+    val cacheWindow = remember { LazyLayoutCacheWindow(ahead = 300.dp, behind = 150.dp) }
+    val listStates = TAB_ORDER.map { rememberLazyListState(cacheWindow) }
 
     LaunchedEffect(pagerState.settledPage) {
         savedPage = pagerState.settledPage
