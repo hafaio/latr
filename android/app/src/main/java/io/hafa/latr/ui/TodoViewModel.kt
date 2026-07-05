@@ -49,8 +49,8 @@ class TodoViewModel(
     val eveningMinutes: StateFlow<Int> = _eveningMinutes
 
     // A single, most-recent-wins undo buffer. Delete restores via re-insert
-    // (the rows are gone); Snooze restores via update (the row still exists,
-    // just needs its prior state/snoozeUntil/modifiedAt put back).
+    // (the rows are gone); Snooze and Complete restore via update (the row still
+    // exists, just needs its prior state/snoozeUntil/modifiedAt put back).
     private sealed interface UndoableAction {
         data class Delete(val todos: List<Todo>) : UndoableAction
         data class Snooze(val previous: Todo) : UndoableAction
