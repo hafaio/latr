@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1046,6 +1047,8 @@ fun TodoItem(
                                     )
                                     caretFromTap =
                                         textLayoutResult?.getOffsetForPosition(down.position)
+                                    // Cancelled (became a scroll/swipe): drop the caret so a later off-text tap falls back to end.
+                                    if (waitForUpOrCancellation() == null) caretFromTap = null
                                 }
                             }
                     )
