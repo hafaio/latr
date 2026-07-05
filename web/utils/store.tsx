@@ -23,8 +23,8 @@ import {
 } from "./todo";
 
 // A single, most-recent-wins undo buffer. "delete" restores via re-insert
-// (the rows are gone); "snooze" restores via update (the rows still exist,
-// just need their prior state/snoozeUntil/modifiedAt put back).
+// (the rows are gone); "snooze" and "complete" restore via update (the rows
+// still exist, just need their prior state/snoozeUntil/modifiedAt put back).
 export type UndoKind = "delete" | "snooze" | "complete";
 export type UndoEntry = { kind: UndoKind; todos: Todo[] };
 

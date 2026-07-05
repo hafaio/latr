@@ -88,7 +88,7 @@ export default function Page(): ReactElement {
   }, [focusId]);
 
   useEffect(() => {
-    // ⌘/Ctrl+Z reverts the last action (delete or snooze) while the undo chip
+    // ⌘/Ctrl+Z reverts the last action (delete, snooze, or complete) while the undo chip
     // is visible. Captured even inside text inputs so a freshly-deleted row
     // beats the browser's native undo of an unrelated edit.
     if (!lastUndo) return;
