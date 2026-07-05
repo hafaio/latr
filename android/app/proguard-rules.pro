@@ -1,21 +1,13 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Credential Manager discovers its Play Services provider via Class.forName
+# (manifest metadata), which R8 can't see — without this keep, the provider is
+# stripped/renamed and getCredential() fails at runtime, silently breaking
+# Google sign-in in release builds. Rule is verbatim from the Credential
+# Manager docs (developer.android.com/identity/sign-in/credential-manager).
+-if class androidx.credentials.CredentialManager
+-keep class androidx.credentials.playservices.** {
+  *;
+}
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Readable stack traces in release logcat (R8 still renames symbols; the
+# generated mapping.txt deobfuscates fully).
+-keepattributes SourceFile,LineNumberTable
