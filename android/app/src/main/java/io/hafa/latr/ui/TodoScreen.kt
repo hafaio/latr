@@ -400,7 +400,8 @@ fun TodoScreen(
                         if (result.isFailure) {
                             Toast.makeText(
                                 context,
-                                "Delete failed — nothing was removed. Please try again.",
+                                "Account deletion didn't finish — some remote data " +
+                                    "may already be gone. Please try again.",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
