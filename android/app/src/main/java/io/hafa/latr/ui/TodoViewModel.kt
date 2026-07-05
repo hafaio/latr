@@ -54,6 +54,7 @@ class TodoViewModel(
     private sealed interface UndoableAction {
         data class Delete(val todos: List<Todo>) : UndoableAction
         data class Snooze(val previous: Todo) : UndoableAction
+        data class Complete(val previous: Todo) : UndoableAction
     }
 
     private var _lastAction: UndoableAction? = null
@@ -146,6 +147,15 @@ class TodoViewModel(
         }
     }
 
+    fun completeUndoable(todo: Todo) {
+        _lastAction = UndoableAction.Complete(todo)
+        armUndo()
+        updateTodo(
+            todo.copy(state = TodoState.DONE, snoozeUntil = null),
+            touchModifiedAt = true
+        )
+    }
+
     fun snoozeUndoable(todo: Todo, snoozeUntil: String) {
         // Buffer the pre-snooze snapshot so undo can restore its prior
         // state/snoozeUntil/modifiedAt (and thus its prior sort position).
@@ -232,6 +242,10 @@ class TodoViewModel(
             is UndoableAction.Snooze ->
                 // Re-apply the prior snapshot verbatim (no modifiedAt touch) so
                 // the row lands back in its previous sort position.
+                viewModelScope.launch {
+                    currentStore().update(action.previous)
+                }
+            is UndoableAction.Complete ->
                 viewModelScope.launch {
                     currentStore().update(action.previous)
                 }
