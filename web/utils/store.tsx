@@ -25,7 +25,7 @@ import {
 // A single, most-recent-wins undo buffer. "delete" restores via re-insert
 // (the rows are gone); "snooze" restores via update (the rows still exist,
 // just need their prior state/snoozeUntil/modifiedAt put back).
-export type UndoKind = "delete" | "snooze";
+export type UndoKind = "delete" | "snooze" | "complete";
 export type UndoEntry = { kind: UndoKind; todos: Todo[] };
 
 export type UiState = {
@@ -219,7 +219,21 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   );
 
   const markDone = useCallback(
-    (id: string) => setState(holder, id, "DONE", null),
+    (id: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      void store.update({
+        ...existing,
+        state: "DONE",
+        snoozeUntil: null,
+        modifiedAt: Date.now(),
+      });
+      dispatch({
+        type: "setUndo",
+        entry: { kind: "complete", todos: [existing] },
+      });
+    },
     [holder],
   );
 
@@ -318,7 +332,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     if (entry.kind === "delete") {
       void store.restoreMany(entry.todos);
     } else {
-      // Snooze undo: the rows still exist, so re-apply the prior snapshot.
+      // Rows still exist (unlike delete), so re-apply the prior snapshot via update.
       for (const prior of entry.todos) void store.update(prior);
     }
     dispatch({ type: "clearUndo" });
