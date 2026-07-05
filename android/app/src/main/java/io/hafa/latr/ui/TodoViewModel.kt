@@ -209,13 +209,13 @@ class TodoViewModel(
     }
 
     fun clearAllDone() {
-        // Buffer synchronously; the async clear below would leave undo empty on an early tap.
         val doneTodos = todos.value?.filter { it.state == TodoState.DONE }.orEmpty()
         if (doneTodos.isEmpty()) return
-        _lastAction = UndoableAction.Delete(doneTodos)
-        armUndo()
         viewModelScope.launch {
-            currentStore().clearAllDone()
+            // Enqueue the delete before arming undo so an early Undo lands after it.
+            currentStore().clearAllDone(doneTodos)
+            _lastAction = UndoableAction.Delete(doneTodos)
+            armUndo()
         }
     }
 

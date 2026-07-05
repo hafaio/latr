@@ -112,17 +112,11 @@ class FirestoreTodoStore(
             .addOnFailureListener { Log.w(TAG, "delete failed", it) }
     }
 
-    override suspend fun clearAllDone(): List<Todo> {
-        val snap = collection.whereEqualTo("state", TodoState.DONE.name).get().await()
-        val done = snap.documents.mapNotNull { doc ->
-            val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
-            if (todo.deleted) null else todo
-        }
-        if (done.isEmpty()) return emptyList()
+    override suspend fun clearAllDone(done: List<Todo>) {
+        if (done.isEmpty()) return
         val batch = firestore.batch()
-        for (doc in snap.documents) batch.delete(doc.reference)
+        for (t in done) batch.delete(collection.document(t.id))
         batch.commit().addOnFailureListener { Log.w(TAG, "clearAllDone failed", it) }
-        return done
     }
 
     override suspend fun restoreMany(todos: List<Todo>) {

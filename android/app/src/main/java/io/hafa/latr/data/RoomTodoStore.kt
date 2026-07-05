@@ -20,10 +20,8 @@ class RoomTodoStore(private val dao: TodoDao) : TodoStore {
 
     override suspend fun delete(todo: Todo) = dao.delete(todo)
 
-    override suspend fun clearAllDone(): List<Todo> {
-        val done = dao.getDoneTodos()
-        if (done.isNotEmpty()) dao.deleteAllDone()
-        return done
+    override suspend fun clearAllDone(done: List<Todo>) {
+        for (t in done) dao.delete(t)
     }
 
     override suspend fun restoreMany(todos: List<Todo>) {

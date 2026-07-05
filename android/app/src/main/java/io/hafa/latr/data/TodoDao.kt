@@ -37,12 +37,6 @@ interface TodoDao {
     @Query("SELECT * FROM todos WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): Todo?
 
-    @Query("SELECT * FROM todos WHERE state = 'DONE'")
-    suspend fun getDoneTodos(): List<Todo>
-
-    @Query("DELETE FROM todos WHERE state = 'DONE'")
-    suspend fun deleteAllDone()
-
     @Query("DELETE FROM todos WHERE text = '' AND id != :exceptId")
     suspend fun deleteEmptyTodosExcept(exceptId: String)
 
