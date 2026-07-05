@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.tasks.await
 
@@ -38,29 +39,34 @@ class FirestoreTodoStore(
     private val collection: CollectionReference =
         firestore.collection("users").document(uid).collection("todos")
 
-    override fun observeAll(): Flow<List<Todo>> = callbackFlow {
-        val reg = collection.addSnapshotListener { snap, err ->
-            // A delivered error terminates this listener; propagate so retryWhen
-            // re-collects and registers a fresh one.
-            if (err != null) close(err)
-            else if (snap != null) {
-                trySend(
-                    snap.documents.mapNotNull { doc ->
-                        val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
-                        if (todo.deleted) null else todo
-                    }
-                )
+    override fun observeAll(): Flow<List<Todo>> {
+        // Tracked ourselves (not retryWhen's cumulative attempt) so onEach can reset it on a healthy emission.
+        var failures = 0
+        return callbackFlow {
+            val reg = collection.addSnapshotListener { snap, err ->
+                // A delivered error terminates this listener; propagate so retryWhen
+                // re-collects and registers a fresh one.
+                if (err != null) close(err)
+                else if (snap != null) {
+                    trySend(
+                        snap.documents.mapNotNull { doc ->
+                            val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
+                            if (todo.deleted) null else todo
+                        }
+                    )
+                }
             }
+            awaitClose { reg.remove() }
+        }.onEach { failures = 0 }.retryWhen { cause, _ ->
+            val backoff = minOf(
+                MAX_RETRY_DELAY_MS,
+                BASE_RETRY_DELAY_MS shl failures.coerceAtMost(RETRY_SHIFT_CAP),
+            )
+            failures++
+            Log.w(TAG, "snapshot listener error; retrying in ${backoff}ms", cause)
+            delay(backoff)
+            true
         }
-        awaitClose { reg.remove() }
-    }.retryWhen { cause, attempt ->
-        val backoff = minOf(
-            MAX_RETRY_DELAY_MS,
-            BASE_RETRY_DELAY_MS shl attempt.toInt().coerceAtMost(RETRY_SHIFT_CAP),
-        )
-        Log.w(TAG, "snapshot listener error; retrying in ${backoff}ms", cause)
-        delay(backoff)
-        true
     }
 
     override suspend fun snapshot(): List<Todo> {
