@@ -54,9 +54,17 @@ Track features and behavior here. When making changes, verify existing behavior 
 - Online status comes from `useOnlineStatus` (`utils/use-online-status.ts`), a `useSyncExternalStore` hook reading `navigator.onLine` live so online/offline event ordering can't leave a stale value
 
 ### Sort Order
-- Active: pinned items first, then by snoozeUntil (unsnoozed, most recently unsnoozed first) else modifiedAt — both descending — with modifiedAt as a secondary tiebreak (among rows sharing an unsnooze time, the most recently modified sorts first)
+- Active: by `activeSortKey` (`utils/todo.ts`) — snoozeUntil (unsnoozed, most recently unsnoozed first) else modifiedAt — descending, with modifiedAt as the tiebreak. The **web** sort ignores `pinned` (pinning is a grouping concern, below); **Android** keeps pinned-first in its flat list.
 - Snoozed: by snooze time ascending
 - Done, All: by modifiedAt descending
+
+### Grouping (web)
+- The web list renders in buckets whose key is the *same* key the list is sorted by, so a row's bucket and its position can never disagree. (The old modifiedAt-only grouping fought the Active sort: a recently-unsnoozed row sorted at the top but fell into a late date bucket.) `groupForFilter` (`utils/group.ts`) buckets an already-sorted list, preserving order within each bucket.
+- Active: a **Pinned** bucket on top (all pinned rows), then date buckets Today / Yesterday / This week / Earlier keyed on `activeSortKey` — so an unsnoozed row buckets by its unsnooze time. Pinned rows appear only in the Pinned bucket.
+- Snoozed: Later today / Tomorrow / This week / Later keyed on snoozeUntil.
+- Done, All: date buckets keyed on modifiedAt.
+- Search: one unlabeled group (relevance-ranked, so date/pinned buckets would be meaningless).
+- Android renders a flat list (no buckets); pinning floats via its sort there.
 
 ### Pinned
 - `pinned: boolean` on every todo, synced (web `toFirestoreFields`/`fromFirestore`, Android `toMap`/`fromMap`, Room column already in schema v9). Defaults to false.

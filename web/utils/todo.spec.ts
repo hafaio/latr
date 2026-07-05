@@ -170,27 +170,26 @@ describe("matchesFilter", () => {
 });
 
 describe("sortForFilter", () => {
-  test("ACTIVE: pinned first, then most-recent modifiedAt", () => {
+  test("ACTIVE: orders by unsnooze-else-modified key descending", () => {
     const a = todo({ id: "a", modifiedAt: 100 });
-    const b = todo({ id: "b", modifiedAt: 300, pinned: true });
+    const b = todo({ id: "b", modifiedAt: 300 });
     const c = todo({ id: "c", modifiedAt: 200 });
     const sorted = sortForFilter([a, b, c], "ACTIVE").map((t) => t.id);
     expect(sorted).toEqual(["b", "c", "a"]);
   });
 
-  test("ACTIVE: a pinned item beats an unpinned just-unsnoozed item", () => {
-    // snoozeUntil drives the unsnoozed item's key, but pinned is a strict
-    // primary partition, so the pinned item still wins regardless.
-    const pinned = todo({ id: "pinned", modifiedAt: 100, pinned: true });
+  test("ACTIVE: ignores pinned (pinning floats via the grouping bucket, not the sort)", () => {
+    const pinnedStale = todo({ id: "pinned", modifiedAt: 100, pinned: true });
     const unsnoozed = todo({
       id: "unsnoozed",
       modifiedAt: 50,
       snoozeUntil: epochToIso(9_999_999_999_999),
     });
-    const sorted = sortForFilter([unsnoozed, pinned], "ACTIVE").map(
+    const fresh = todo({ id: "fresh", modifiedAt: 500 });
+    const sorted = sortForFilter([pinnedStale, unsnoozed, fresh], "ACTIVE").map(
       (t) => t.id,
     );
-    expect(sorted).toEqual(["pinned", "unsnoozed"]);
+    expect(sorted).toEqual(["unsnoozed", "fresh", "pinned"]);
   });
 
   test("SNOOZED / DONE / ALL ignore pinned", () => {
