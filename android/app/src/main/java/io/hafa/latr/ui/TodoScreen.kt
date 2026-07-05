@@ -430,7 +430,9 @@ fun TodoScreenContent(
     onUpdateTodo: (Todo, Boolean) -> Unit,
     onDeleteTodo: (Todo) -> Unit,
     onSwipeDeleteTodo: (Todo) -> Unit = onDeleteTodo,
-    onCompleteTodo: (Todo) -> Unit = { onUpdateTodo(it, true) },
+    onCompleteTodo: (Todo) -> Unit = {
+        onUpdateTodo(it.copy(state = TodoState.DONE, snoozeUntil = null), true)
+    },
     onRefresh: () -> Unit,
     onTodoFocused: (String) -> Unit,
     onTodoBlurred: (String) -> Unit = {},
