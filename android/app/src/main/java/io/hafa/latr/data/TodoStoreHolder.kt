@@ -1,6 +1,7 @@
 package io.hafa.latr.data
 
 import android.util.Log
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import io.hafa.latr.ui.auth.AuthManager
@@ -73,8 +74,11 @@ class TodoStoreHolder(
      */
     suspend fun signIn(): Result<Unit> {
         val am = authManager ?: return Result.success(Unit)
-        // A cancelled prompt is a no-op success; only a merge failure propagates.
-        val user = am.signInWithGoogle().getOrNull() ?: return Result.success(Unit)
+        val user = am.signInWithGoogle().getOrElse { cause ->
+            // A dismissed prompt is a no-op success; any real failure surfaces.
+            return if (cause is GetCredentialCancellationException) Result.success(Unit)
+            else Result.failure(cause)
+        }
         return runCatching { mergeRoomIntoFirestore(user.uid) }
             .onFailure { Log.e(TAG, "sign-in merge failed", it) }
             .map { }

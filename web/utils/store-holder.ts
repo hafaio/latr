@@ -1,5 +1,6 @@
 "use client";
 
+import { FirebaseError } from "firebase/app";
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -94,9 +95,15 @@ export class TodoStoreHolder {
       const result = await signInWithPopup(auth(), new GoogleAuthProvider());
       uid = result.user.uid;
     } catch (e) {
-      // Cancelled popup is benign; a merge failure below propagates.
-      console.error("sign-in popup failed", e);
-      return;
+      // A dismissed popup is benign; real failures propagate.
+      if (
+        e instanceof FirebaseError &&
+        (e.code === "auth/popup-closed-by-user" ||
+          e.code === "auth/cancelled-popup-request")
+      ) {
+        return;
+      }
+      throw e;
     }
     await this.mergeLocalIntoFirestore(uid);
   }
