@@ -142,6 +142,9 @@ export class TodoStoreHolder {
     this.localStore.dispose();
     this.firestoreStore?.dispose();
     this.firestoreStore = null;
+    // Reset so a re-setup with the same uid re-swaps instead of reusing the disposed store.
+    this.user = null;
+    this.currentStore = this.localStore;
     this.listeners.clear();
   }
 
