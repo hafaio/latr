@@ -132,6 +132,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   const [ui, dispatch] = useReducer(uiReducer, initialUi);
 
   useEffect(() => {
+    holder.setup();
     holder.hydrate();
     setHydrated(true);
     return () => {
@@ -208,13 +209,10 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       const existing = store.getTodos().find((t) => t.id === id);
       if (!existing || existing.text === text) return;
-      const updated: Todo = {
-        ...existing,
-        text,
-        snoozeUntil: isEffectivelyActive(existing)
-          ? null
-          : existing.snoozeUntil,
-      };
+      // Also flip state to "ACTIVE": a SNOOZED row with snoozeUntil:null matches no filter but "All".
+      const updated: Todo = isEffectivelyActive(existing)
+        ? { ...existing, text, state: "ACTIVE", snoozeUntil: null }
+        : { ...existing, text };
       void store.update(updated);
     },
     [holder],

@@ -1,5 +1,6 @@
 package io.hafa.latr.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -307,6 +308,7 @@ fun TodoScreen(
     var showSignInSheet by remember { mutableStateOf(false) }
     var showAccountSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     TodoScreenContent(
         todos = todos,
@@ -364,7 +366,18 @@ fun TodoScreen(
 
     if (showSignInSheet) {
         SignInBottomSheet(
-            onSignIn = { viewModel.signIn() },
+            onSignIn = {
+                viewModel.signIn { result ->
+                    if (result.isFailure) {
+                        Toast.makeText(
+                            context,
+                            "Signed in, but syncing this device's edits failed — " +
+                                "they're still saved here. Please try again.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            },
             onDismiss = { showSignInSheet = false }
         )
     }
@@ -375,7 +388,17 @@ fun TodoScreen(
             AccountBottomSheet(
                 authState = signedIn,
                 onSignOut = { viewModel.signOut() },
-                onDeleteAccount = { viewModel.deleteAccount() },
+                onDeleteAccount = {
+                    viewModel.deleteAccount { result ->
+                        if (result.isFailure) {
+                            Toast.makeText(
+                                context,
+                                "Delete failed — nothing was removed. Please try again.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                },
                 onDismiss = { showAccountSheet = false }
             )
         }
@@ -454,7 +477,7 @@ fun TodoScreenContent(
         onClearFocus()
     }
 
-    // Unsnooze expired items when app is resumed
+    // Unsnooze expired items on resume.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         onRefresh()
     }
@@ -951,9 +974,15 @@ fun TodoItem(
                     }
                 )
                 if (todo.snoozeUntil != null) {
-                    val millis = LocalDateTimeUtil.toEpochMillis(todo.snoozeUntil)
+                    // Memoized: formatSnoozeTime allocates and would otherwise run per row on scroll.
+                    val snoozeLabel = remember(todo.snoozeUntil) {
+                        LocalDateTimeUtil.formatSnoozeTime(
+                            LocalDateTimeUtil.toEpochMillis(todo.snoozeUntil),
+                            context,
+                        )
+                    }
                     Text(
-                        text = LocalDateTimeUtil.formatSnoozeTime(millis, context),
+                        text = snoozeLabel,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary
                     )

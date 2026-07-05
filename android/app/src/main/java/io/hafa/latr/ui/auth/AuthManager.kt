@@ -6,6 +6,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -31,7 +32,7 @@ class AuthManager(
         awaitClose { auth.removeAuthStateListener(listener) }
     }.stateIn(scope, SharingStarted.Eagerly, auth.currentUser)
 
-    suspend fun signInWithGoogle(): Result<FirebaseUser> = runCatching {
+    private suspend fun getGoogleCredential(): AuthCredential {
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
             .setServerClientId(serverClientId)
@@ -43,9 +44,18 @@ class AuthManager(
 
         val result = credentialManager.getCredential(context, request)
         val googleIdToken = GoogleIdTokenCredential.createFrom(result.credential.data)
-        val firebaseCredential = GoogleAuthProvider.getCredential(googleIdToken.idToken, null)
-        auth.signInWithCredential(firebaseCredential).await().user!!
+        return GoogleAuthProvider.getCredential(googleIdToken.idToken, null)
+    }
+
+    suspend fun signInWithGoogle(): Result<FirebaseUser> = runCatching {
+        auth.signInWithCredential(getGoogleCredential()).await().user!!
     }.onFailure { Log.e(TAG, "Google sign-in failed", it) }
+
+    suspend fun reauthenticateWithGoogle(): Result<Unit> = runCatching {
+        val user = auth.currentUser ?: error("no signed-in user to reauthenticate")
+        user.reauthenticate(getGoogleCredential()).await()
+        Unit
+    }.onFailure { Log.e(TAG, "Reauthentication failed", it) }
 
     fun signOut() {
         auth.signOut()
