@@ -71,7 +71,9 @@ export default function AuthMenu(): ReactElement {
       await holder.deleteAccount();
     } catch (e) {
       console.error(e);
-      alert("Delete failed — nothing was removed. Please try again.");
+      alert(
+        "Account deletion didn't finish — some remote data may already be gone. Please try again.",
+      );
     }
   }
 
