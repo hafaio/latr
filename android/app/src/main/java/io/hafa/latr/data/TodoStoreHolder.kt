@@ -104,7 +104,12 @@ class TodoStoreHolder(
         val reauth = am.reauthenticateWithGoogle()
         if (reauth.isFailure) return reauth
         snapshotFirestoreIntoRoom()
-        currentFirestoreStore?.deleteAll()
+        // Wrap so a throw becomes a failed Result instead of crashing the launch.
+        val wipe = runCatching { currentFirestoreStore?.deleteAll() }
+        if (wipe.isFailure) {
+            Log.e(TAG, "delete-account remote wipe failed", wipe.exceptionOrNull())
+            return wipe.map { }
+        }
         return am.deleteCurrentUser()
     }
 
