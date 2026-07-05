@@ -236,6 +236,19 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
         </span>
       )}
 
+      {wasUnsnoozed && todo.snoozeUntil && (
+        <span
+          className="
+            pr-2 text-xs text-snooze shrink-0 whitespace-nowrap
+            opacity-100 group-hover/row:opacity-0 group-focus-within/row:opacity-0
+            group-data-[keep-actions=true]/row:opacity-0
+            transition-opacity
+          "
+        >
+          {formatSnoozeTime(isoToEpoch(todo.snoozeUntil))}
+        </span>
+      )}
+
       <div
         className="
           absolute right-2 top-1
