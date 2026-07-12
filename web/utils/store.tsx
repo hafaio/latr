@@ -20,6 +20,7 @@ import {
   newTodo,
   type Todo,
   type TodoState,
+  withPinToggled,
 } from "./todo";
 
 // A single, most-recent-wins undo buffer. "delete" restores via re-insert
@@ -272,17 +273,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       const existing = store.getTodos().find((t) => t.id === id);
       if (!existing) return;
-      // Bump modifiedAt and clear the was-snoozed marker (promoting an
-      // expired-snooze row to ACTIVE so it stays in the list) so the toggled
-      // row becomes a plain recent row and lands at the top of its group rather
-      // than a stale position. Pin never touches the undo buffer.
-      void store.update({
-        ...existing,
-        pinned: !existing.pinned,
-        state: "ACTIVE",
-        snoozeUntil: null,
-        modifiedAt: Date.now(),
-      });
+      void store.update(withPinToggled(existing, Date.now()));
     },
     [holder],
   );

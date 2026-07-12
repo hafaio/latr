@@ -9,6 +9,7 @@ import {
   sortForFilter,
   type Todo,
   toFirestoreFields,
+  withPinToggled,
 } from "./todo";
 
 function todo(overrides: Partial<Todo> = {}): Todo {
@@ -271,6 +272,87 @@ describe("sortForFilter", () => {
     const snapshot = input.slice();
     sortForFilter(input, "ACTIVE");
     expect(input).toEqual(snapshot);
+  });
+});
+
+describe("withPinToggled", () => {
+  const now = 5000;
+
+  test("an active row is promoted: pinned, marker cleared, modifiedAt bumped", () => {
+    const active = todo({ state: "ACTIVE", modifiedAt: 100 });
+    expect(withPinToggled(active, now)).toMatchObject({
+      pinned: true,
+      state: "ACTIVE",
+      snoozeUntil: null,
+      modifiedAt: now,
+    });
+  });
+
+  test("an unsnoozed row drops its expired marker and becomes plainly ACTIVE", () => {
+    const unsnoozed = todo({
+      state: "SNOOZED",
+      snoozeUntil: epochToIso(now - 1000),
+      modifiedAt: 100,
+    });
+    expect(withPinToggled(unsnoozed, now)).toMatchObject({
+      pinned: true,
+      state: "ACTIVE",
+      snoozeUntil: null,
+      modifiedAt: now,
+    });
+  });
+
+  test("a still-snoozed row keeps its snooze time and state, but is touched", () => {
+    const snoozeUntil = epochToIso(now + 1000);
+    const snoozed = todo({ state: "SNOOZED", snoozeUntil, modifiedAt: 100 });
+    expect(withPinToggled(snoozed, now)).toEqual({
+      ...snoozed,
+      pinned: true,
+      modifiedAt: now,
+    });
+  });
+
+  test("a done row keeps its state, but is touched", () => {
+    const done = todo({ state: "DONE", modifiedAt: 100 });
+    expect(withPinToggled(done, now)).toEqual({
+      ...done,
+      pinned: true,
+      modifiedAt: now,
+    });
+  });
+
+  test("unpinning a snoozed row likewise leaves it snoozed", () => {
+    const snoozed = todo({
+      state: "SNOOZED",
+      snoozeUntil: epochToIso(now + 1000),
+      modifiedAt: 100,
+      pinned: true,
+    });
+    expect(withPinToggled(snoozed, now)).toEqual({
+      ...snoozed,
+      pinned: false,
+      modifiedAt: now,
+    });
+  });
+
+  test("the snooze-ordered list is unmoved by the touch", () => {
+    const early = todo({
+      id: "early",
+      state: "SNOOZED",
+      snoozeUntil: epochToIso(now + 1000),
+      modifiedAt: 100,
+    });
+    const late = todo({
+      id: "late",
+      state: "SNOOZED",
+      snoozeUntil: epochToIso(now + 2000),
+      modifiedAt: 200,
+    });
+    const sorted = sortForFilter(
+      [withPinToggled(late, now), early],
+      "SNOOZED",
+    ).map((t) => t.id);
+    expect(sorted).toEqual(["early", "late"]);
   });
 });
 
