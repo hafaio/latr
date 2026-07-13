@@ -702,21 +702,20 @@ fun TodoScreenContent(
                                         onClearFocus()
                                         onRequestSnooze(todo)
                                     },
-                                    // Pin reorders the Active list: bump modifiedAt
-                                    // (touch = true) AND clear the was-snoozed marker
-                                    // so the pinned row becomes a plain recent row and
-                                    // floats to the top of its group. (Unsnoozed rows
-                                    // that aren't pinned still sort by unsnooze time,
-                                    // then modifiedAt.)
-                                    onTogglePin = if (pageFilter == StatusFilter.ACTIVE) {
+                                    onTogglePin = if (todo.state == TodoState.DONE) {
+                                        null
+                                    } else {
                                         {
+                                            // Only ACTIVE orders by the pin, so only it drops the
+                                            // was-snoozed marker to float the row to the top.
+                                            val snoozeUntil =
+                                                if (todo.state == TodoState.ACTIVE) null
+                                                else todo.snoozeUntil
                                             onUpdateTodo(
-                                                todo.copy(pinned = !todo.pinned, snoozeUntil = null),
+                                                todo.copy(pinned = !todo.pinned, snoozeUntil = snoozeUntil),
                                                 true,
                                             )
                                         }
-                                    } else {
-                                        null
                                     },
                                     onCreateNewTodo = onCreateTodo,
                                     modifier = Modifier.animateItem()
@@ -786,7 +785,7 @@ fun TodoItem(
     onSwipeDelete: () -> Unit = onDelete,
     onComplete: () -> Unit = { onUpdate(todo.copy(state = TodoState.DONE, snoozeUntil = null), true) },
     onSnooze: () -> Unit,
-    // Null disables pinning (passed only for the Active filter).
+    // Null disables pinning (passed for every row but a done one).
     onTogglePin: (() -> Unit)? = null,
     onCreateNewTodo: () -> Unit,
     modifier: Modifier = Modifier
@@ -955,10 +954,13 @@ fun TodoItem(
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             val colorScheme = MaterialTheme.colorScheme
+            // The pin displaces the state dot only on an ACTIVE row — the one row whose
+            // order the pin actually changes. Done/snoozed keep their own state icon.
+            val showsPin = todo.pinned && todo.state == TodoState.ACTIVE
             val (stateIcon, stateIconTint) = when {
                 todo.state == TodoState.DONE -> Icons.Filled.CheckCircle to colorScheme.primary
-                todo.pinned -> Icons.Outlined.PushPin to colorScheme.primary
                 todo.state == TodoState.SNOOZED -> Icons.Filled.Notifications to colorScheme.tertiary
+                showsPin -> Icons.Outlined.PushPin to colorScheme.primary
                 todo.snoozeUntil != null -> Icons.Outlined.Notifications to colorScheme.tertiary  // Was snoozed, now active
                 else -> Icons.Default.RadioButtonUnchecked to colorScheme.onSurfaceVariant
             }
@@ -976,7 +978,7 @@ fun TodoItem(
             )
             Icon(
                 imageVector = stateIcon,
-                contentDescription = if (todo.pinned) "Pinned" else null,
+                contentDescription = if (showsPin) "Pinned" else null,
                 tint = stateIconTint,
                 modifier = Modifier.padding(end = 12.dp)
             )

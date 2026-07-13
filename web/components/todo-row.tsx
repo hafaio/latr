@@ -49,7 +49,6 @@ function Hint({
 
 export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const {
-    filter,
     focusId,
     edit,
     markDone,
@@ -127,22 +126,21 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     isoToEpoch(todo.snoozeUntil) > Date.now();
   const wasUnsnoozed =
     !isDone && !isActivelySnoozed && todo.snoozeUntil !== null;
-  // Pin only affects the Active list's order, so the affordance lives there
-  // only (gate on the current filter, not todo.state — unsnoozed rows show in
-  // Active while still carrying state "SNOOZED").
-  const showPin = filter === "ACTIVE";
+  const showPin = !isDone;
 
   function primaryToggle() {
     if (isDone) reactivate(todo.id);
     else markDone(todo.id);
   }
 
+  // The pin displaces the state dot only on an active row — the one row whose
+  // order the pin actually changes. Done/snoozed keep their own state icon.
   const primaryIcon = isDone ? (
     <FaCheckCircle className="text-done text-base" />
-  ) : todo.pinned ? (
-    <BsPinAngle className="text-accent text-base" />
   ) : isActivelySnoozed ? (
     <FaClock className="text-snooze text-base" />
+  ) : todo.pinned ? (
+    <BsPinAngle className="text-accent text-base" />
   ) : wasUnsnoozed ? (
     <FaRegClock className="text-snooze text-base" />
   ) : (

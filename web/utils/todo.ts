@@ -108,6 +108,23 @@ export function activeSortKey(t: Todo): number {
   return t.snoozeUntil ? isoToEpoch(t.snoozeUntil) : t.modifiedAt;
 }
 
+/** Flips `pinned`; only an active row also drops its was-snoozed marker. */
+export function withPinToggled(t: Todo, now: number): Todo {
+  const pinned = !t.pinned;
+  if (!matchesFilter(t, "ACTIVE", now)) {
+    return { ...t, pinned, modifiedAt: now };
+  } else {
+    // state: an expired-snooze row is still "SNOOZED"; without this it'd leave the list.
+    return {
+      ...t,
+      pinned,
+      state: "ACTIVE",
+      snoozeUntil: null,
+      modifiedAt: now,
+    };
+  }
+}
+
 export function sortForFilter(todos: readonly Todo[], filter: Filter): Todo[] {
   const copy = todos.slice();
   switch (filter) {
