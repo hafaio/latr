@@ -982,12 +982,14 @@ fun TodoItem(
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             val colorScheme = MaterialTheme.colorScheme
-            // The pin displaces the state dot only on a plainly-active row — the one row
-            // whose order the pin actually changes. Done/snoozed keep their own state icon.
+            // Pinned displaces the state dot only on an active row; elsewhere it just
+            // tints it. A done row is already primary, so it needs no branch.
             val showsPin = todo.pinned && todo.state != TodoState.DONE && !snoozed
             val (stateIcon, stateIconTint) = when {
                 todo.state == TodoState.DONE -> Icons.Filled.CheckCircle to colorScheme.primary
-                snoozed -> Icons.Filled.Notifications to colorScheme.tertiary
+                snoozed -> Icons.Filled.Notifications to
+                    if (todo.pinned) colorScheme.primary else colorScheme.tertiary
+
                 showsPin -> Icons.Outlined.PushPin to colorScheme.primary
                 todo.snoozeUntil != null -> Icons.Outlined.Notifications to colorScheme.tertiary  // Was snoozed, now active
                 else -> Icons.Default.RadioButtonUnchecked to colorScheme.onSurfaceVariant
@@ -1006,7 +1008,7 @@ fun TodoItem(
             )
             Icon(
                 imageVector = stateIcon,
-                contentDescription = if (showsPin) "Pinned" else null,
+                contentDescription = if (todo.pinned) "Pinned" else null,
                 tint = stateIconTint,
                 modifier = Modifier.padding(end = 12.dp)
             )
