@@ -16,6 +16,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db, firebaseConfigured } from "./firebase";
+import { planMerge } from "./merge";
 import { fromFirestore, type Todo, toFirestoreFields } from "./todo";
 import {
   FirestoreTodoStore,
@@ -193,14 +194,11 @@ export class TodoStoreHolder {
     }
   }
 
-  /**
-   * Merge the local store's current state into Firestore. Edits made while
-   * signed out are published; remote tombstones from legacy clients
-   * (deleted=true docs) take precedence so we don't resurrect them.
-   */
+  /** Publish local edits and pending deletes; see [planMerge]. */
   private async mergeLocalIntoFirestore(uid: string): Promise<void> {
     const col = collection(db(), "users", uid, "todos");
-    const local = this.localStore.getTodos();
+    const local = this.localStore.getWithTombstones();
+    // Unfiltered, unlike the live listener: the plan needs to see the tombstones.
     const remoteSnap = await getDocs(col);
     const remoteById = new Map<string, Todo>();
     for (const d of remoteSnap.docs) {
@@ -209,24 +207,7 @@ export class TodoStoreHolder {
         fromFirestore(d.id, d.data() as Record<string, unknown>),
       );
     }
-    const toPush: Todo[] = [];
-    const toDropLocalIds: string[] = [];
-    for (const l of local) {
-      const r = remoteById.get(l.id);
-      if (!r) {
-        toPush.push(l);
-        continue;
-      }
-      if (r.deleted) {
-        toDropLocalIds.push(l.id);
-        continue;
-      }
-      if (l.modifiedAt > r.modifiedAt) toPush.push(l);
-    }
-    if (toDropLocalIds.length > 0) {
-      const dropSet = new Set(toDropLocalIds);
-      this.localStore.replaceAll(local.filter((t) => !dropSet.has(t.id)));
-    }
+    const { toPush, toDropLocalIds } = planMerge(local, remoteById);
     if (toPush.length > 0) {
       const batch = writeBatch(db());
       for (const t of toPush) {
@@ -238,5 +219,9 @@ export class TodoStoreHolder {
       }
       await batch.commit();
     }
+    const dropSet = new Set(toDropLocalIds);
+    this.localStore.replaceAll(
+      this.localStore.getTodos().filter((t) => !dropSet.has(t.id)),
+    );
   }
 }
