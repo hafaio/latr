@@ -127,35 +127,18 @@ class TodoStoreHolder(
         }
     }
 
-    /**
-     * Merge Room's current state into Firestore. Local edits made while
-     * signed out are published; remote tombstones from legacy clients
-     * (deleted=true docs) take precedence so we don't resurrect them.
-     */
+    /** Publish local edits and pending deletes; see [planMerge]. */
     private suspend fun mergeRoomIntoFirestore(uid: String) {
         val fs = firestore ?: return
         val collection = fs.collection("users").document(uid).collection("todos")
         val local = dao.getAllSnapshot()
+        // Unfiltered, unlike the live listener: the plan needs to see the tombstones.
         val remoteSnap = collection.get().await()
         val remoteById = HashMap<String, Todo>(remoteSnap.size())
         for (doc in remoteSnap.documents) {
             remoteById[doc.id] = Todo.fromMap(doc.id, doc.data ?: emptyMap())
         }
-        val toPush = mutableListOf<Todo>()
-        val toDropLocalIds = mutableListOf<String>()
-        for (l in local) {
-            val remote = remoteById[l.id]
-            if (remote == null) {
-                toPush.add(l)
-                continue
-            }
-            if (remote.deleted) {
-                toDropLocalIds.add(l.id)
-                continue
-            }
-            if (l.modifiedAt > remote.modifiedAt) toPush.add(l)
-        }
-        for (id in toDropLocalIds) dao.deleteById(id)
+        val (toPush, toDropLocalIds) = planMerge(local, remoteById)
         if (toPush.isNotEmpty()) {
             val batch = fs.batch()
             for (t in toPush) {
@@ -163,6 +146,8 @@ class TodoStoreHolder(
             }
             batch.commit().await()
         }
+        for (id in toDropLocalIds) dao.deleteById(id)
+        dao.purgeTombstones()
         Log.d(TAG, "Sign-in merge: pushed=${toPush.size} dropped=${toDropLocalIds.size}")
     }
 

@@ -3,19 +3,23 @@
 import {
   type CollectionReference,
   collection,
-  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { fromFirestore, readState, type Todo, toFirestoreFields } from "./todo";
 
 const STORAGE_KEY = "latr:todos:v1";
+
+// `== false` does NOT match docs missing the field; every doc is backfilled.
+const LIVE_ONLY = where("deleted", "==", false);
 
 const BASE_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 30_000;
@@ -82,6 +86,8 @@ abstract class BaseTodoStore implements TodoStore {
 
 export class LocalTodoStore extends BaseTodoStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  // Deletes made while signed out; the sign-in merge pushes them up, then clears them.
+  private tombstones: Todo[] = [];
 
   isSyncing(): boolean {
     return false;
@@ -100,23 +106,31 @@ export class LocalTodoStore extends BaseTodoStore {
           ? localStorage.getItem(STORAGE_KEY)
           : null;
       const parsed: Todo[] = raw ? JSON.parse(raw) : [];
-      this.todos = parsed
-        .filter((t) => t.deleted !== true)
-        .map((t) => ({
-          ...t,
-          deleted: false,
-          state: readState(t.state),
-          // JSON.parse leaves serverModifiedAt as a {seconds, nanoseconds}
-          // plain object; rehydrate it so the type signature isn't a lie.
-          serverModifiedAt: rehydrateTimestamp(t.serverModifiedAt),
-        }));
+      const normalized = parsed.map((t) => ({
+        ...t,
+        state: readState(t.state),
+        // A missing `deleted` would reach Firestore as undefined, which it rejects.
+        deleted: t.deleted === true,
+        // JSON.parse leaves serverModifiedAt as a {seconds, nanoseconds}
+        // plain object; rehydrate it so the type signature isn't a lie.
+        serverModifiedAt: rehydrateTimestamp(t.serverModifiedAt),
+      }));
+      this.todos = normalized.filter((t) => !t.deleted);
+      this.tombstones = normalized.filter((t) => t.deleted);
     } catch {
       this.todos = [];
+      this.tombstones = [];
     }
     this.emit();
   }
 
+  /** Live rows plus pending deletes — only the sign-in merge wants both. */
+  getWithTombstones(): Todo[] {
+    return [...this.todos, ...this.tombstones];
+  }
+
   replaceAll(todos: Todo[]): void {
+    this.tombstones = [];
     this.commit(todos);
   }
 
@@ -129,23 +143,28 @@ export class LocalTodoStore extends BaseTodoStore {
   }
 
   async delete(todo: Todo): Promise<void> {
+    this.tombstone([todo]);
     this.commit(this.todos.filter((t) => t.id !== todo.id));
   }
 
   async clearAllDone(): Promise<Todo[]> {
     const done = this.todos.filter((t) => t.state === "DONE");
     if (done.length === 0) return [];
+    this.tombstone(done);
     this.commit(this.todos.filter((t) => t.state !== "DONE"));
     return done;
   }
 
   async restoreMany(todos: Todo[]): Promise<void> {
     if (todos.length === 0) return;
+    const restoredIds = new Set(todos.map((t) => t.id));
     const existing = new Set(this.todos.map((t) => t.id));
     const restored = todos
       .filter((t) => !existing.has(t.id))
       .map((t) => ({ ...t, deleted: false }));
-    if (restored.length === 0) return;
+    // Commit unconditionally: dropping the tombstones has to reach localStorage
+    // even when the rows are somehow still live and there's nothing to re-add.
+    this.tombstones = this.tombstones.filter((t) => !restoredIds.has(t.id));
     this.commit([...restored, ...this.todos]);
   }
 
@@ -162,10 +181,19 @@ export class LocalTodoStore extends BaseTodoStore {
       this.persistTimer = null;
       // Flush the pending write so we don't lose the latest state.
       if (typeof window !== "undefined") {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.todos));
+        localStorage.setItem(STORAGE_KEY, this.persisted());
       }
     }
     this.clearListeners();
+  }
+
+  // modifiedAt so the merge can last-write-wins this against a remote edit.
+  private tombstone(todos: Todo[]): void {
+    const ids = new Set(todos.map((t) => t.id));
+    this.tombstones = [
+      ...this.tombstones.filter((t) => !ids.has(t.id)),
+      ...todos.map((t) => ({ ...t, deleted: true, modifiedAt: Date.now() })),
+    ];
   }
 
   private commit(next: Todo[]): void {
@@ -174,11 +202,15 @@ export class LocalTodoStore extends BaseTodoStore {
     this.emit();
   }
 
+  private persisted(): string {
+    return JSON.stringify([...this.todos, ...this.tombstones]);
+  }
+
   private schedulePersist(): void {
     if (typeof window === "undefined") return;
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.todos));
+      localStorage.setItem(STORAGE_KEY, this.persisted());
       this.persistTimer = null;
     }, 100);
   }
@@ -190,9 +222,7 @@ export class LocalTodoStore extends BaseTodoStore {
  * intermediate to reconcile, so echoes of our own writes cannot clobber
  * in-flight state the way they could in the two-store model.
  *
- * Legacy tombstone docs (deleted=true, written by older clients) are
- * filtered out on read. New deletes call deleteDoc directly; Firestore
- * propagates REMOVED to every active listener.
+ * A delete writes a tombstone; the listener filters them out server-side.
  */
 export class FirestoreTodoStore extends BaseTodoStore {
   private readonly col: CollectionReference;
@@ -228,10 +258,10 @@ export class FirestoreTodoStore extends BaseTodoStore {
   }
 
   async snapshot(): Promise<Todo[]> {
-    const snap = await getDocs(this.col);
-    return snap.docs
-      .map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>))
-      .filter((t) => !t.deleted);
+    const snap = await getDocs(query(this.col, LIVE_ONLY));
+    return snap.docs.map((d) =>
+      fromFirestore(d.id, d.data() as Record<string, unknown>),
+    );
   }
 
   async insert(todo: Todo): Promise<void> {
@@ -258,7 +288,7 @@ export class FirestoreTodoStore extends BaseTodoStore {
   async delete(todo: Todo): Promise<void> {
     this.todos = this.todos.filter((t) => t.id !== todo.id);
     this.emit();
-    await deleteDoc(doc(this.col, todo.id));
+    await setDoc(doc(this.col, todo.id), this.tombstone(), { merge: true });
   }
 
   async clearAllDone(): Promise<Todo[]> {
@@ -267,7 +297,9 @@ export class FirestoreTodoStore extends BaseTodoStore {
     this.todos = this.todos.filter((t) => t.state !== "DONE");
     this.emit();
     const batch = writeBatch(db());
-    for (const t of done) batch.delete(doc(this.col, t.id));
+    for (const t of done) {
+      batch.set(doc(this.col, t.id), this.tombstone(), { merge: true });
+    }
     await batch.commit();
     return done;
   }
@@ -328,7 +360,7 @@ export class FirestoreTodoStore extends BaseTodoStore {
     if (this.unsubscribe) return;
     this.fromCache = true;
     this.unsubscribe = onSnapshot(
-      this.col,
+      query(this.col, LIVE_ONLY),
       // includeMetadataChanges fires the listener when fromCache flips (e.g.
       // live connection re-established after a backgrounded tab) even if no
       // doc data changed, so the sync indicator can reflect reconnect state.
@@ -336,9 +368,9 @@ export class FirestoreTodoStore extends BaseTodoStore {
       (snap) => {
         // A server-confirmed emission means the listener is healthy again.
         if (!snap.metadata.fromCache) this.retryAttempt = 0;
-        this.todos = snap.docs
-          .map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>))
-          .filter((t) => !t.deleted);
+        this.todos = snap.docs.map((d) =>
+          fromFirestore(d.id, d.data() as Record<string, unknown>),
+        );
         this.fromCache = snap.metadata.fromCache;
         this.emit();
       },
@@ -369,6 +401,16 @@ export class FirestoreTodoStore extends BaseTodoStore {
   private withServerTs(todo: Todo): Record<string, unknown> {
     return {
       ...toFirestoreFields(todo),
+      serverModifiedAt: serverTimestamp(),
+    };
+  }
+
+  // set/merge, not update: update rejects a missing doc, which would abort the
+  // whole clearAllDone batch. modifiedAt so the merge can last-write-wins it.
+  private tombstone(): Record<string, unknown> {
+    return {
+      deleted: true,
+      modifiedAt: Date.now(),
       serverModifiedAt: serverTimestamp(),
     };
   }

@@ -45,7 +45,7 @@ export default function AuthMenu(): ReactElement {
     } catch (e) {
       console.error(e);
       alert(
-        "Sign-in didn't complete, or syncing this device's edits failed — your local todos are safe. Please try again.",
+        "Sign-in didn't complete, or syncing this device's edits failed — nothing was lost, but edits and deletes made while signed out may not have synced. Sign out and back in to retry.",
       );
     }
   }

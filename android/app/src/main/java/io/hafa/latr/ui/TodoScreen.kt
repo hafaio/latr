@@ -383,7 +383,9 @@ fun TodoScreen(
                         Toast.makeText(
                             context,
                             "Sign-in didn't complete, or syncing this device's edits " +
-                                "failed — your local todos are safe. Please try again.",
+                                "failed — nothing was lost, but edits and deletes made " +
+                                "while signed out may not have synced. Sign out and back " +
+                                "in to retry.",
                             Toast.LENGTH_LONG
                         ).show()
                     }

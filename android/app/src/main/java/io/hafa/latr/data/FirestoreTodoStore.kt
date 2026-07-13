@@ -2,7 +2,9 @@ package io.hafa.latr.data
 
 import android.util.Log
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -18,9 +20,7 @@ import kotlinx.coroutines.tasks.await
  * intermediate to reconcile, so echoes of our own writes cannot clobber
  * in-flight typing the way they could in the two-store model.
  *
- * Legacy tombstone docs (deleted=true, written by older clients) are filtered
- * out on read so the UI never surfaces them. New deletes call deleteDoc
- * directly; Firestore propagates REMOVED to every active listener.
+ * A delete writes a tombstone; the listener filters them out server-side.
  *
  * Writes do **not** await the returned Task: while offline that Task stays
  * pending until the server acks, which would suspend the coroutine
@@ -36,19 +36,21 @@ class FirestoreTodoStore(
     private val collection: CollectionReference =
         firestore.collection("users").document(uid).collection("todos")
 
+    // `== false` does NOT match docs missing the field; every doc is backfilled.
+    private val liveOnly: Query = collection.whereEqualTo("deleted", false)
+
     override fun observeAll(): Flow<List<Todo>> {
         // Tracked ourselves (not retryWhen's cumulative attempt) so onEach can reset it on a healthy emission.
         var failures = 0
         return callbackFlow {
-            val reg = collection.addSnapshotListener { snap, err ->
+            val reg = liveOnly.addSnapshotListener { snap, err ->
                 // A delivered error terminates this listener; propagate so retryWhen
                 // re-collects and registers a fresh one.
                 if (err != null) close(err)
                 else if (snap != null) {
                     trySend(
-                        snap.documents.mapNotNull { doc ->
-                            val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
-                            if (todo.deleted) null else todo
+                        snap.documents.map { doc ->
+                            Todo.fromMap(doc.id, doc.data ?: emptyMap())
                         }
                     )
                 }
@@ -67,10 +69,9 @@ class FirestoreTodoStore(
     }
 
     override suspend fun snapshot(): List<Todo> {
-        val snap = collection.get().await()
-        return snap.documents.mapNotNull { doc ->
-            val todo = Todo.fromMap(doc.id, doc.data ?: emptyMap())
-            if (todo.deleted) null else todo
+        val snap = liveOnly.get().await()
+        return snap.documents.map { doc ->
+            Todo.fromMap(doc.id, doc.data ?: emptyMap())
         }
     }
 
@@ -85,14 +86,16 @@ class FirestoreTodoStore(
     }
 
     override suspend fun delete(todo: Todo) {
-        collection.document(todo.id).delete()
+        collection.document(todo.id).set(tombstone(), SetOptions.merge())
             .addOnFailureListener { Log.w(TAG, "delete failed", it) }
     }
 
     override suspend fun clearAllDone(done: List<Todo>) {
         if (done.isEmpty()) return
         val batch = firestore.batch()
-        for (t in done) batch.delete(collection.document(t.id))
+        for (t in done) {
+            batch.set(collection.document(t.id), tombstone(), SetOptions.merge())
+        }
         batch.commit().addOnFailureListener { Log.w(TAG, "clearAllDone failed", it) }
     }
 
@@ -100,14 +103,29 @@ class FirestoreTodoStore(
         if (todos.isEmpty()) return
         val batch = firestore.batch()
         for (t in todos) {
-            batch.set(collection.document(t.id), t.toMap(), SetOptions.merge())
+            batch.set(
+                collection.document(t.id),
+                t.copy(deleted = false).toMap(),
+                SetOptions.merge(),
+            )
         }
         batch.commit().addOnFailureListener { Log.w(TAG, "restoreMany failed", it) }
     }
 
+    // set/merge, not update: update rejects a missing doc, which would abort the
+    // whole clearAllDone batch. modifiedAt so the merge can last-write-wins it.
+    private fun tombstone(): Map<String, Any> = mapOf(
+        "deleted" to true,
+        "modifiedAt" to System.currentTimeMillis(),
+        "serverModifiedAt" to FieldValue.serverTimestamp(),
+    )
+
     override suspend fun deleteEmptyTodosExcept(exceptId: String) {
         val snap = collection.whereEqualTo("text", "").get().await()
-        val toDelete = snap.documents.filter { it.id != exceptId }
+        // A tombstone keeps its text, so an empty one would be reaped here too.
+        val toDelete = snap.documents.filter {
+            it.id != exceptId && it.getBoolean("deleted") != true
+        }
         if (toDelete.isEmpty()) return
         val batch = firestore.batch()
         for (doc in toDelete) batch.delete(doc.reference)
