@@ -18,7 +18,7 @@ class TodoMapTest {
             modifiedAt = 1_700_000_001_000L,
             // serverModifiedAt is in-memory only; toMap always stamps the sentinel.
             serverModifiedAt = null,
-            state = TodoState.SNOOZED,
+            state = TodoState.ACTIVE,
             snoozeUntil = "2026-04-24T09:00:00",
             pinned = true,
             deleted = false,
@@ -36,7 +36,7 @@ class TodoMapTest {
         assertEquals("buy milk", map["text"])
         assertEquals(1_700_000_000_000L, map["createdAt"])
         assertEquals(1_700_000_001_000L, map["modifiedAt"])
-        assertEquals("SNOOZED", map["state"])
+        assertEquals("ACTIVE", map["state"])
         assertEquals("2026-04-24T09:00:00", map["snoozeUntil"])
         assertEquals(true, map["pinned"])
         assertEquals(false, map["deleted"])
@@ -96,6 +96,16 @@ class TodoMapTest {
     fun `fromMap defaults unknown state to ACTIVE`() {
         val todo = Todo.fromMap("id", mapOf("state" to "BOGUS"))
         assertEquals(TodoState.ACTIVE, todo.state)
+    }
+
+    @Test
+    fun `fromMap reads a legacy SNOOZED row as ACTIVE, keeping its snooze time`() {
+        val todo = Todo.fromMap(
+            "id",
+            mapOf("state" to "SNOOZED", "snoozeUntil" to "2026-04-24T09:00:00"),
+        )
+        assertEquals(TodoState.ACTIVE, todo.state)
+        assertEquals("2026-04-24T09:00:00", todo.snoozeUntil)
     }
 
     @Test

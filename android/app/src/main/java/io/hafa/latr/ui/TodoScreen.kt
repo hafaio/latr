@@ -89,6 +89,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -329,7 +330,6 @@ fun TodoScreen(
         onDeleteTodo = { viewModel.deleteTodo(it) },
         onSwipeDeleteTodo = { viewModel.deleteTodoUndoable(it) },
         onCompleteTodo = { viewModel.completeUndoable(it) },
-        onRefresh = { viewModel.unsnoozeExpired() },
         onTodoFocused = { todoId -> viewModel.setFocusId(todoId) },
         onTodoBlurred = { todoId -> viewModel.clearFocusId(todoId) },
         onClearFocus = { viewModel.clearFocus() },
@@ -433,7 +433,6 @@ fun TodoScreenContent(
     onCompleteTodo: (Todo) -> Unit = {
         onUpdateTodo(it.copy(state = TodoState.DONE, snoozeUntil = null), true)
     },
-    onRefresh: () -> Unit,
     onTodoFocused: (String) -> Unit,
     onTodoBlurred: (String) -> Unit = {},
     onClearFocus: () -> Unit = {},
@@ -450,6 +449,8 @@ fun TodoScreenContent(
     initialStatusFilter: StatusFilter = StatusFilter.ACTIVE
 ) {
     var isRefreshing by remember { mutableStateOf(false) }
+    // Nothing writes to a todo when its snooze lapses, so this has to advance itself.
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -465,14 +466,23 @@ fun TodoScreenContent(
         savedPage = pagerState.settledPage
     }
 
-    val filteredTodosByFilter = remember(todos, searchQuery) {
+    val filteredTodosByFilter = remember(todos, searchQuery, nowMillis) {
         val visible = todos ?: emptyList()
-        TAB_ORDER.associateWith { filter -> visible.filterAndSort(filter, searchQuery) }
+        TAB_ORDER.associateWith { filter ->
+            visible.filterAndSort(filter, searchQuery, nowMillis)
+        }
     }
     val filteredTodos = filteredTodosByFilter[statusFilter] ?: emptyList()
 
-    LaunchedEffect(Unit) {
-        onRefresh()
+    // Wake at the soonest snooze so its row moves itself out of Snoozed.
+    LaunchedEffect(todos, nowMillis) {
+        val nextExpiry = todos.orEmpty()
+            .filter { it.state != TodoState.DONE }
+            .mapNotNull { it.snoozeUntil?.let(LocalDateTimeUtil::toEpochMillis) }
+            .filter { it > nowMillis }
+            .minOrNull() ?: return@LaunchedEffect
+        delay((nextExpiry - System.currentTimeMillis()).coerceAtLeast(100L))
+        nowMillis = System.currentTimeMillis()
     }
 
     // Clear focus when filter changes
@@ -493,9 +503,8 @@ fun TodoScreenContent(
         onClearFocus()
     }
 
-    // Unsnooze expired items on resume.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        onRefresh()
+        nowMillis = System.currentTimeMillis()
     }
 
     // Clear focus on back press
@@ -626,7 +635,7 @@ fun TodoScreenContent(
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
                             isRefreshing = true
-                            onRefresh()
+                            nowMillis = System.currentTimeMillis()
                             delay(500)
                             isRefreshing = false
                         }
@@ -669,14 +678,21 @@ fun TodoScreenContent(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(pageTodos, key = { it.id }) { todo ->
+                                val snoozed = todo.isSnoozed(nowMillis)
                                 TodoItem(
                                     todo = todo,
                                     shouldRequestFocus = todo.id == focusId,
+                                    snoozed = snoozed,
                                     isInFastComposeMode = fastCreationId != null && todo.id == focusId,
                                     onFocused = onTodoFocused,
                                     onBlurred = onTodoBlurred,
                                     onUpdate = { updatedTodo, touchModifiedAt ->
-                                        if (updatedTodo.state != todo.state) {
+                                        // Snoozed-ness, not raw snoozeUntil: a swipe-reactivate
+                                        // only moves that, but so does editing an unsnoozed row —
+                                        // and that must not kick you out of the editor.
+                                        if (updatedTodo.state != todo.state ||
+                                            updatedTodo.isSnoozed(nowMillis) != snoozed
+                                        ) {
                                             focusManager.clearFocus()
                                             onClearFocus()
                                         }
@@ -706,11 +722,9 @@ fun TodoScreenContent(
                                         null
                                     } else {
                                         {
-                                            // Only ACTIVE orders by the pin, so only it drops the
-                                            // was-snoozed marker to float the row to the top.
+                                            // Only an active row drops its was-snoozed marker.
                                             val snoozeUntil =
-                                                if (todo.state == TodoState.ACTIVE) null
-                                                else todo.snoozeUntil
+                                                if (snoozed) todo.snoozeUntil else null
                                             onUpdateTodo(
                                                 todo.copy(pinned = !todo.pinned, snoozeUntil = snoozeUntil),
                                                 true,
@@ -777,6 +791,8 @@ fun TodoScreenContent(
 fun TodoItem(
     todo: Todo,
     shouldRequestFocus: Boolean,
+    // Derived by the caller from its ticking clock.
+    snoozed: Boolean = false,
     isInFastComposeMode: Boolean = false,
     onFocused: (String) -> Unit,
     onBlurred: (String) -> Unit = {},
@@ -805,6 +821,7 @@ fun TodoItem(
 
     // rememberUpdatedState: the gesture blocks are keyed on todo.id, so they'd otherwise capture stale closures.
     val currentTodo by rememberUpdatedState(todo)
+    val currentSnoozed by rememberUpdatedState(snoozed)
     val currentOnUpdate by rememberUpdatedState(onUpdate)
     val currentOnDelete by rememberUpdatedState(onDelete)
     val currentOnSwipeDelete by rememberUpdatedState(onSwipeDelete)
@@ -871,17 +888,21 @@ fun TodoItem(
             }
         },
         onDismiss = { direction ->
-            when (direction to currentTodo.state) {
-                SwipeToDismissBoxValue.EndToStart to TodoState.DONE -> currentOnSwipeDelete()
-                SwipeToDismissBoxValue.EndToStart to TodoState.SNOOZED,
-                SwipeToDismissBoxValue.EndToStart to TodoState.ACTIVE ->
-                    currentOnComplete()
+            val done = currentTodo.state == TodoState.DONE
+            when (direction) {
+                SwipeToDismissBoxValue.EndToStart ->
+                    if (done) currentOnSwipeDelete() else currentOnComplete()
 
-                SwipeToDismissBoxValue.StartToEnd to TodoState.DONE,
-                SwipeToDismissBoxValue.StartToEnd to TodoState.SNOOZED ->
-                    currentOnUpdate(currentTodo.copy(state = TodoState.ACTIVE, snoozeUntil = null), true)
+                SwipeToDismissBoxValue.StartToEnd ->
+                    if (done || currentSnoozed) {
+                        currentOnUpdate(
+                            currentTodo.copy(state = TodoState.ACTIVE, snoozeUntil = null),
+                            true,
+                        )
+                    } else {
+                        currentOnSnooze()
+                    }
 
-                SwipeToDismissBoxValue.StartToEnd to TodoState.ACTIVE -> currentOnSnooze()
                 else -> Unit
             }
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -890,24 +911,29 @@ fun TodoItem(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val colorScheme = MaterialTheme.colorScheme
-            val (backgroundColor, icon, iconTint) = when (direction to todo.state) {
-                SwipeToDismissBoxValue.EndToStart to TodoState.DONE ->
-                    Triple(colorScheme.error, Icons.Default.Delete, colorScheme.onError)
+            val done = todo.state == TodoState.DONE
+            val (backgroundColor, icon, iconTint) = when (direction) {
+                SwipeToDismissBoxValue.EndToStart ->
+                    if (done) {
+                        Triple(colorScheme.error, Icons.Default.Delete, colorScheme.onError)
+                    } else {
+                        Triple(colorScheme.primary, Icons.Default.Check, colorScheme.onPrimary)
+                    }
 
-                SwipeToDismissBoxValue.EndToStart to TodoState.SNOOZED,
-                SwipeToDismissBoxValue.EndToStart to TodoState.ACTIVE ->
-                    Triple(colorScheme.primary, Icons.Default.Check, colorScheme.onPrimary)
-
-                SwipeToDismissBoxValue.StartToEnd to TodoState.DONE,
-                SwipeToDismissBoxValue.StartToEnd to TodoState.SNOOZED ->
-                    Triple(colorScheme.secondary, Icons.Default.Refresh, colorScheme.onSecondary)
-
-                SwipeToDismissBoxValue.StartToEnd to TodoState.ACTIVE ->
-                    Triple(
-                        colorScheme.tertiary,
-                        Icons.Default.Notifications,
-                        colorScheme.onTertiary
-                    )
+                SwipeToDismissBoxValue.StartToEnd ->
+                    if (done || snoozed) {
+                        Triple(
+                            colorScheme.secondary,
+                            Icons.Default.Refresh,
+                            colorScheme.onSecondary
+                        )
+                    } else {
+                        Triple(
+                            colorScheme.tertiary,
+                            Icons.Default.Notifications,
+                            colorScheme.onTertiary
+                        )
+                    }
 
                 else -> Triple(Color.Transparent, null, Color.Transparent)
             }
@@ -954,12 +980,12 @@ fun TodoItem(
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             val colorScheme = MaterialTheme.colorScheme
-            // The pin displaces the state dot only on an ACTIVE row — the one row whose
-            // order the pin actually changes. Done/snoozed keep their own state icon.
-            val showsPin = todo.pinned && todo.state == TodoState.ACTIVE
+            // The pin displaces the state dot only on a plainly-active row — the one row
+            // whose order the pin actually changes. Done/snoozed keep their own state icon.
+            val showsPin = todo.pinned && todo.state != TodoState.DONE && !snoozed
             val (stateIcon, stateIconTint) = when {
                 todo.state == TodoState.DONE -> Icons.Filled.CheckCircle to colorScheme.primary
-                todo.state == TodoState.SNOOZED -> Icons.Filled.Notifications to colorScheme.tertiary
+                snoozed -> Icons.Filled.Notifications to colorScheme.tertiary
                 showsPin -> Icons.Outlined.PushPin to colorScheme.primary
                 todo.snoozeUntil != null -> Icons.Outlined.Notifications to colorScheme.tertiary  // Was snoozed, now active
                 else -> Icons.Default.RadioButtonUnchecked to colorScheme.onSurfaceVariant
@@ -989,7 +1015,11 @@ fun TodoItem(
                         onValueChange = { newValue ->
                             if (!newValue.text.contains('\n')) {
                                 fieldValue = newValue
-                                val edited = if (currentTodo.state == TodoState.ACTIVE) {
+                                // Only a plainly-active row drops its was-snoozed marker;
+                                // clearing it on a snoozed row would unsnooze it.
+                                val plainlyActive =
+                                    currentTodo.state != TodoState.DONE && !currentSnoozed
+                                val edited = if (plainlyActive) {
                                     currentTodo.copy(text = newValue.text, snoozeUntil = null)
                                 } else {
                                     currentTodo.copy(text = newValue.text)
@@ -1085,7 +1115,6 @@ private fun TodoScreenEmptyPreview() {
             onCreateTodo = {},
             onUpdateTodo = { _, _ -> },
             onDeleteTodo = {},
-            onRefresh = {},
             onTodoFocused = {},
             onRequestSnooze = {}
         )
@@ -1105,7 +1134,6 @@ private fun TodoScreenWithItemsPreview() {
             onCreateTodo = {},
             onUpdateTodo = { _, _ -> },
             onDeleteTodo = {},
-            onRefresh = {},
             onTodoFocused = {},
             onRequestSnooze = {}
         )
@@ -1213,12 +1241,12 @@ private fun TodoItemSnoozedSoonPreview() {
             todo = Todo(
                 id = "1",
                 text = "Snoozed task",
-                state = TodoState.SNOOZED,
                 snoozeUntil = LocalDateTimeUtil.fromEpochMillis(
                     System.currentTimeMillis() + 2 * 60 * 60 * 1000
                 )
             ),
             shouldRequestFocus = false,
+            snoozed = true,
             onFocused = {},
             onUpdate = { _, _ -> },
             onDelete = {},
@@ -1236,12 +1264,12 @@ private fun TodoItemSnoozedLaterPreview() {
             todo = Todo(
                 id = "1",
                 text = "Snoozed for later",
-                state = TodoState.SNOOZED,
                 snoozeUntil = LocalDateTimeUtil.fromEpochMillis(
                     System.currentTimeMillis() + 3 * 24 * 60 * 60 * 1000
                 )
             ),
             shouldRequestFocus = false,
+            snoozed = true,
             onFocused = {},
             onUpdate = { _, _ -> },
             onDelete = {},
@@ -1281,18 +1309,17 @@ private fun TodoScreenSnoozedPreview() {
         TodoScreenContent(
             todos = listOf(
                 Todo(
-                    id = "1", text = "Call mom", state = TodoState.SNOOZED,
+                    id = "1", text = "Call mom",
                     snoozeUntil = "2024-01-20T09:00:00"
                 ),
                 Todo(
-                    id = "2", text = "Review PR", state = TodoState.SNOOZED,
+                    id = "2", text = "Review PR",
                     snoozeUntil = "2024-01-16T14:00:00"
                 ),
             ),
             onCreateTodo = {},
             onUpdateTodo = { _, _ -> },
             onDeleteTodo = {},
-            onRefresh = {},
             onTodoFocused = {},
             onRequestSnooze = {},
             initialStatusFilter = StatusFilter.SNOOZED
@@ -1312,7 +1339,6 @@ private fun TodoScreenDonePreview() {
             onCreateTodo = {},
             onUpdateTodo = { _, _ -> },
             onDeleteTodo = {},
-            onRefresh = {},
             onTodoFocused = {},
             onRequestSnooze = {},
             initialStatusFilter = StatusFilter.DONE
@@ -1328,7 +1354,7 @@ private fun TodoScreenAllPreview() {
             todos = listOf(
                 Todo(id = "1", text = "Active task", state = TodoState.ACTIVE),
                 Todo(
-                    id = "2", text = "Snoozed task", state = TodoState.SNOOZED,
+                    id = "2", text = "Snoozed task",
                     snoozeUntil = "2024-01-20T09:00:00"
                 ),
                 Todo(id = "3", text = "Done task", state = TodoState.DONE),
@@ -1336,7 +1362,6 @@ private fun TodoScreenAllPreview() {
             onCreateTodo = {},
             onUpdateTodo = { _, _ -> },
             onDeleteTodo = {},
-            onRefresh = {},
             onTodoFocused = {},
             onRequestSnooze = {},
             initialStatusFilter = StatusFilter.ALL

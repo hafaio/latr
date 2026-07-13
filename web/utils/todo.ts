@@ -1,6 +1,6 @@
 import { Timestamp } from "firebase/firestore";
 
-export type TodoState = "ACTIVE" | "DONE" | "SNOOZED";
+export type TodoState = "ACTIVE" | "DONE";
 
 export type Todo = {
   id: string;
@@ -61,7 +61,7 @@ export function fromFirestore(id: string, data: Record<string, unknown>): Todo {
   return {
     id,
     text: typeof data.text === "string" ? data.text : "",
-    state: isTodoState(data.state) ? data.state : "ACTIVE",
+    state: readState(data.state),
     createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
     modifiedAt,
     serverModifiedAt: readServerTimestamp(data.serverModifiedAt),
@@ -71,8 +71,9 @@ export function fromFirestore(id: string, data: Record<string, unknown>): Todo {
   };
 }
 
-function isTodoState(v: unknown): v is TodoState {
-  return v === "ACTIVE" || v === "DONE" || v === "SNOOZED";
+/** Legacy rows carry state "SNOOZED"; snoozeUntil is the only snooze marker now. */
+export function readState(v: unknown): TodoState {
+  return v === "DONE" ? "DONE" : "ACTIVE";
 }
 
 export function isoToEpoch(iso: string): number {
@@ -85,6 +86,15 @@ export function epochToIso(epoch: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/** Snoozed-ness is derived, not stored: a live todo whose snooze time is still ahead. */
+export function isSnoozed(t: Todo, now: number): boolean {
+  return (
+    t.state !== "DONE" &&
+    t.snoozeUntil !== null &&
+    isoToEpoch(t.snoozeUntil) > now
+  );
+}
+
 export function matchesFilter(t: Todo, filter: Filter, now: number): boolean {
   switch (filter) {
     case "ALL":
@@ -92,15 +102,9 @@ export function matchesFilter(t: Todo, filter: Filter, now: number): boolean {
     case "DONE":
       return t.state === "DONE";
     case "SNOOZED":
-      return (
-        t.state === "SNOOZED" &&
-        t.snoozeUntil !== null &&
-        isoToEpoch(t.snoozeUntil) > now
-      );
+      return isSnoozed(t, now);
     case "ACTIVE":
-      if (t.state === "ACTIVE") return true;
-      if (t.state === "DONE") return false;
-      return t.snoozeUntil !== null && isoToEpoch(t.snoozeUntil) <= now;
+      return t.state !== "DONE" && !isSnoozed(t, now);
   }
 }
 
@@ -114,14 +118,7 @@ export function withPinToggled(t: Todo, now: number): Todo {
   if (!matchesFilter(t, "ACTIVE", now)) {
     return { ...t, pinned, modifiedAt: now };
   } else {
-    // state: an expired-snooze row is still "SNOOZED"; without this it'd leave the list.
-    return {
-      ...t,
-      pinned,
-      state: "ACTIVE",
-      snoozeUntil: null,
-      modifiedAt: now,
-    };
+    return { ...t, pinned, snoozeUntil: null, modifiedAt: now };
   }
 }
 

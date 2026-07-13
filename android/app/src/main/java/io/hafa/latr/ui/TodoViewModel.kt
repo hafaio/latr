@@ -1,6 +1,5 @@
 package io.hafa.latr.ui
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -8,8 +7,6 @@ import io.hafa.latr.data.Todo
 import io.hafa.latr.data.TodoState
 import io.hafa.latr.data.TodoStoreHolder
 import io.hafa.latr.data.UserPreferences
-import io.hafa.latr.util.LocalDateTimeUtil
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,10 +97,6 @@ class TodoViewModel(
         _eveningMinutes.value = minutes
     }
 
-    init {
-        unsnoozeExpired()
-    }
-
     private fun currentStore() = storeHolder.store.value
 
     fun createTodo() {
@@ -158,29 +151,10 @@ class TodoViewModel(
 
     fun snoozeUndoable(todo: Todo, snoozeUntil: String) {
         // Buffer the pre-snooze snapshot so undo can restore its prior
-        // state/snoozeUntil/modifiedAt (and thus its prior sort position).
+        // snoozeUntil/modifiedAt (and thus its prior sort position).
         _lastAction = UndoableAction.Snooze(todo)
         armUndo()
-        updateTodo(
-            todo.copy(state = TodoState.SNOOZED, snoozeUntil = snoozeUntil),
-            touchModifiedAt = true
-        )
-    }
-
-    fun unsnoozeExpired() {
-        viewModelScope.launch {
-            val now = LocalDateTimeUtil.now()
-            val store = currentStore()
-            for (todo in store.getExpiredSnoozed(now)) {
-                try {
-                    store.unsnooze(todo)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "unsnooze failed for ${todo.id}; will retry", e)
-                }
-            }
-        }
+        updateTodo(todo.copy(snoozeUntil = snoozeUntil), touchModifiedAt = true)
     }
 
     fun setFocusId(todoId: String) {
@@ -255,7 +229,6 @@ class TodoViewModel(
     }
 
     companion object {
-        private const val TAG = "TodoViewModel"
         private const val UNDO_TIMEOUT_MS = 5_000L
     }
 }

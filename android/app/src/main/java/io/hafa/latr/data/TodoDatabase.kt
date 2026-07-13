@@ -14,8 +14,9 @@ class Converters {
     @TypeConverter
     fun fromTodoState(state: TodoState): String = state.name
 
+    // Not valueOf: rows persisted by an older build still hold "SNOOZED".
     @TypeConverter
-    fun toTodoState(value: String): TodoState = TodoState.valueOf(value)
+    fun toTodoState(value: String): TodoState = Todo.readState(value)
 
     // Millis-truncated; Room is signed-out only, never feeds the conflict rule.
     @TypeConverter
