@@ -14,6 +14,11 @@ val TAB_ORDER = listOf(
 )
 const val DEFAULT_TAB = 1 // ACTIVE
 
+/** Snoozed-ness is derived, not stored: a live todo whose snooze time is still ahead. */
+fun Todo.isSnoozed(nowMillis: Long): Boolean =
+    state != TodoState.DONE &&
+        snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) > nowMillis } == true
+
 /**
  * Pure filter + sort + search over a todo list. Extracted from the Compose
  * layer so the logic can be unit-tested without instrumentation.
@@ -33,12 +38,15 @@ const val DEFAULT_TAB = 1 // ACTIVE
 fun List<Todo>.filterAndSort(
     filter: StatusFilter,
     searchQuery: String,
+    nowMillis: Long,
 ): List<Todo> =
     filter { todo ->
         when (filter) {
             StatusFilter.ALL -> true
-            StatusFilter.ACTIVE -> todo.state == TodoState.ACTIVE
-            StatusFilter.SNOOZED -> todo.state == TodoState.SNOOZED
+            StatusFilter.ACTIVE ->
+                todo.state != TodoState.DONE && !todo.isSnoozed(nowMillis)
+
+            StatusFilter.SNOOZED -> todo.isSnoozed(nowMillis)
             StatusFilter.DONE -> todo.state == TodoState.DONE
         }
     }

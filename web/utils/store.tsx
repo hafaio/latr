@@ -17,9 +17,9 @@ import {
   epochToIso,
   type Filter,
   isoToEpoch,
+  matchesFilter,
   newTodo,
   type Todo,
-  type TodoState,
   withPinToggled,
 } from "./todo";
 
@@ -92,6 +92,7 @@ type ContextShape = UiState & {
   todos: Todo[];
   hydrated: boolean;
   syncing: boolean;
+  now: number;
   holder: TodoStoreHolder;
   create: (text?: string) => Todo;
   edit: (id: string, text: string) => void;
@@ -112,15 +113,6 @@ type ContextShape = UiState & {
 
 const Ctx = createContext<ContextShape | null>(null);
 
-function isEffectivelyActive(t: Todo): boolean {
-  if (t.state === "ACTIVE") return true;
-  return (
-    t.state === "SNOOZED" &&
-    t.snoozeUntil !== null &&
-    isoToEpoch(t.snoozeUntil) <= Date.now()
-  );
-}
-
 const EMPTY_TODOS: Todo[] = [];
 
 export function TodoProvider({ children }: { children: ReactNode }) {
@@ -129,7 +121,8 @@ export function TodoProvider({ children }: { children: ReactNode }) {
   const holder = holderRef.current;
 
   const [hydrated, setHydrated] = useState(false);
-  const [, setTick] = useState(0);
+  // Nothing writes to a todo when its snooze lapses, so this has to advance itself.
+  const [now, setNow] = useState(() => Date.now());
   const [ui, dispatch] = useReducer(uiReducer, initialUi);
 
   useEffect(() => {
@@ -164,34 +157,21 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(id);
   }, [ui.undoExpiresAt]);
 
-  // Unsnooze expired snoozed todos and schedule the next wake.
+  // Wake at the soonest snooze so its row moves itself out of Snoozed.
   useEffect(() => {
-    if (!hydrated) return;
-    const now = Date.now();
-    const expired: Todo[] = [];
     let nextExpiry = Number.POSITIVE_INFINITY;
     for (const t of todos) {
-      if (t.state !== "SNOOZED" || !t.snoozeUntil) continue;
+      if (t.state === "DONE" || !t.snoozeUntil) continue;
       const at = isoToEpoch(t.snoozeUntil);
-      if (at <= now) expired.push(t);
-      else if (at < nextExpiry) nextExpiry = at;
+      if (at > now && at < nextExpiry) nextExpiry = at;
     }
-    if (expired.length > 0) {
-      const store = holder.getStore();
-      for (const t of expired) {
-        // Rule-rejection is swallowed inside the store; anything else
-        // (network, etc.) is logged and retried on the next listener tick.
-        store.unsnooze(t).catch((e) => {
-          console.warn("unsnooze failed; will retry", t.id, e);
-        });
-      }
-    }
-    if (nextExpiry < Number.POSITIVE_INFINITY) {
-      const delay = Math.max(100, nextExpiry - now);
-      const id = setTimeout(() => setTick((n) => n + 1), delay);
-      return () => clearTimeout(id);
-    }
-  }, [hydrated, todos, holder]);
+    if (nextExpiry === Number.POSITIVE_INFINITY) return;
+    const id = setTimeout(
+      () => setNow(Date.now()),
+      Math.max(100, nextExpiry - Date.now()),
+    );
+    return () => clearTimeout(id);
+  }, [todos, now]);
 
   const create = useCallback(
     (text = ""): Todo => {
@@ -210,9 +190,9 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       const existing = store.getTodos().find((t) => t.id === id);
       if (!existing || existing.text === text) return;
-      // Also flip state to "ACTIVE": a SNOOZED row with snoozeUntil:null matches no filter but "All".
-      const updated: Todo = isEffectivelyActive(existing)
-        ? { ...existing, text, state: "ACTIVE", snoozeUntil: null }
+      // An unsnoozed row drops its was-snoozed marker; a snoozed or done one keeps it.
+      const updated: Todo = matchesFilter(existing, "ACTIVE", Date.now())
+        ? { ...existing, text, snoozeUntil: null }
         : { ...existing, text };
       void store.update(updated);
     },
@@ -238,8 +218,19 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     [holder],
   );
 
+  // Clears snoozeUntil too — it's the only marker, so a lingering one re-snoozes the row.
   const reactivate = useCallback(
-    (id: string) => setState(holder, id, "ACTIVE", null),
+    (id: string) => {
+      const store = holder.getStore();
+      const existing = store.getTodos().find((t) => t.id === id);
+      if (!existing) return;
+      void store.update({
+        ...existing,
+        state: "ACTIVE",
+        snoozeUntil: null,
+        modifiedAt: Date.now(),
+      });
+    },
     [holder],
   );
 
@@ -250,7 +241,6 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       if (!existing) return;
       void store.update({
         ...existing,
-        state: "SNOOZED",
         snoozeUntil: epochToIso(epoch),
         modifiedAt: Date.now(),
       });
@@ -349,6 +339,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       todos,
       hydrated,
       syncing,
+      now,
       holder,
       create,
       edit,
@@ -371,6 +362,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       todos,
       hydrated,
       syncing,
+      now,
       holder,
       create,
       edit,
@@ -397,26 +389,4 @@ export function useTodos(): ContextShape {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useTodos must be used inside <TodoProvider>");
   return ctx;
-}
-
-function setState(
-  holder: TodoStoreHolder,
-  id: string,
-  state: TodoState,
-  snoozeUntil: string | null | undefined,
-): void {
-  const store = holder.getStore();
-  const existing = store.getTodos().find((t) => t.id === id);
-  if (!existing) return;
-  void store.update({
-    ...existing,
-    state,
-    snoozeUntil:
-      snoozeUntil === undefined
-        ? state === "SNOOZED"
-          ? existing.snoozeUntil
-          : null
-        : snoozeUntil,
-    modifiedAt: Date.now(),
-  });
 }

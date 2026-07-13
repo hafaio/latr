@@ -12,10 +12,9 @@ import {
 import TodoRow from "./todo-row";
 
 export default function TodoList(): ReactElement {
-  const { todos, filter, search } = useTodos();
+  const { todos, filter, search, now } = useTodos();
 
   const { groups, total } = useMemo(() => {
-    const now = Date.now();
     const filtered = todos.filter((t) => matchesFilter(t, filter, now));
     if (search.trim().length > 0) {
       const ranked = rankBySearch(filtered, search);
@@ -29,7 +28,7 @@ export default function TodoList(): ReactElement {
       groups: groupForFilter(sorted, filter, now),
       total: sorted.length,
     };
-  }, [todos, filter, search]);
+  }, [todos, filter, search, now]);
 
   if (total === 0) {
     return (

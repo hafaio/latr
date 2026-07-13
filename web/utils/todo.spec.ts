@@ -6,6 +6,7 @@ import {
   isoToEpoch,
   matchesFilter,
   rankBySearch,
+  readState,
   sortForFilter,
   type Todo,
   toFirestoreFields,
@@ -124,49 +125,60 @@ describe("matchesFilter", () => {
 
   test("ALL matches everything", () => {
     expect(matchesFilter(todo({ state: "DONE" }), "ALL", NOW)).toBe(true);
-    expect(matchesFilter(todo({ state: "SNOOZED" }), "ALL", NOW)).toBe(true);
+    expect(matchesFilter(todo({ snoozeUntil: FUTURE }), "ALL", NOW)).toBe(true);
     expect(matchesFilter(todo({ state: "ACTIVE" }), "ALL", NOW)).toBe(true);
   });
 
   test("DONE only matches DONE todos", () => {
     expect(matchesFilter(todo({ state: "DONE" }), "DONE", NOW)).toBe(true);
     expect(matchesFilter(todo({ state: "ACTIVE" }), "DONE", NOW)).toBe(false);
-    expect(matchesFilter(todo({ state: "SNOOZED" }), "DONE", NOW)).toBe(false);
+    expect(matchesFilter(todo({ snoozeUntil: FUTURE }), "DONE", NOW)).toBe(
+      false,
+    );
   });
 
-  test("SNOOZED requires actively-snoozed (future snoozeUntil)", () => {
-    expect(
-      matchesFilter(
-        todo({ state: "SNOOZED", snoozeUntil: FUTURE }),
-        "SNOOZED",
-        NOW,
-      ),
-    ).toBe(true);
-    expect(
-      matchesFilter(
-        todo({ state: "SNOOZED", snoozeUntil: PAST }),
-        "SNOOZED",
-        NOW,
-      ),
-    ).toBe(false);
+  test("SNOOZED is a future snoozeUntil — state plays no part", () => {
+    expect(matchesFilter(todo({ snoozeUntil: FUTURE }), "SNOOZED", NOW)).toBe(
+      true,
+    );
+    expect(matchesFilter(todo({ snoozeUntil: PAST }), "SNOOZED", NOW)).toBe(
+      false,
+    );
+  });
+
+  test("a done todo is never snoozed, however far out its snoozeUntil", () => {
+    const doneWithSnooze = todo({ state: "DONE", snoozeUntil: FUTURE });
+    expect(matchesFilter(doneWithSnooze, "SNOOZED", NOW)).toBe(false);
+    expect(matchesFilter(doneWithSnooze, "DONE", NOW)).toBe(true);
   });
 
   test("ACTIVE includes expired-snoozed but not active-snoozed", () => {
-    expect(
-      matchesFilter(
-        todo({ state: "SNOOZED", snoozeUntil: PAST }),
-        "ACTIVE",
-        NOW,
-      ),
-    ).toBe(true);
-    expect(
-      matchesFilter(
-        todo({ state: "SNOOZED", snoozeUntil: FUTURE }),
-        "ACTIVE",
-        NOW,
-      ),
-    ).toBe(false);
+    expect(matchesFilter(todo({ snoozeUntil: PAST }), "ACTIVE", NOW)).toBe(
+      true,
+    );
+    expect(matchesFilter(todo({ snoozeUntil: FUTURE }), "ACTIVE", NOW)).toBe(
+      false,
+    );
     expect(matchesFilter(todo({ state: "DONE" }), "ACTIVE", NOW)).toBe(false);
+  });
+
+  test("a legacy row corrupted to ACTIVE with a future snooze reads as snoozed", () => {
+    const corrupted = todo({ state: "ACTIVE", snoozeUntil: FUTURE });
+    expect(matchesFilter(corrupted, "SNOOZED", NOW)).toBe(true);
+    expect(matchesFilter(corrupted, "ACTIVE", NOW)).toBe(false);
+  });
+});
+
+describe("readState", () => {
+  test("legacy SNOOZED reads as ACTIVE — snoozeUntil carries the snooze", () => {
+    expect(readState("SNOOZED")).toBe("ACTIVE");
+  });
+
+  test("DONE survives; anything unrecognized falls back to ACTIVE", () => {
+    expect(readState("DONE")).toBe("DONE");
+    expect(readState("ACTIVE")).toBe("ACTIVE");
+    expect(readState(undefined)).toBe("ACTIVE");
+    expect(readState("nonsense")).toBe("ACTIVE");
   });
 });
 
@@ -288,23 +300,23 @@ describe("withPinToggled", () => {
     });
   });
 
-  test("an unsnoozed row drops its expired marker and becomes plainly ACTIVE", () => {
+  test("an unsnoozed row drops its expired marker", () => {
     const unsnoozed = todo({
-      state: "SNOOZED",
       snoozeUntil: epochToIso(now - 1000),
       modifiedAt: 100,
     });
     expect(withPinToggled(unsnoozed, now)).toMatchObject({
       pinned: true,
-      state: "ACTIVE",
       snoozeUntil: null,
       modifiedAt: now,
     });
   });
 
-  test("a still-snoozed row keeps its snooze time and state, but is touched", () => {
-    const snoozeUntil = epochToIso(now + 1000);
-    const snoozed = todo({ state: "SNOOZED", snoozeUntil, modifiedAt: 100 });
+  test("a still-snoozed row keeps its snooze time, but is touched", () => {
+    const snoozed = todo({
+      snoozeUntil: epochToIso(now + 1000),
+      modifiedAt: 100,
+    });
     expect(withPinToggled(snoozed, now)).toEqual({
       ...snoozed,
       pinned: true,
@@ -323,7 +335,6 @@ describe("withPinToggled", () => {
 
   test("unpinning a snoozed row likewise leaves it snoozed", () => {
     const snoozed = todo({
-      state: "SNOOZED",
       snoozeUntil: epochToIso(now + 1000),
       modifiedAt: 100,
       pinned: true,
@@ -338,13 +349,11 @@ describe("withPinToggled", () => {
   test("the snooze-ordered list is unmoved by the touch", () => {
     const early = todo({
       id: "early",
-      state: "SNOOZED",
       snoozeUntil: epochToIso(now + 1000),
       modifiedAt: 100,
     });
     const late = todo({
       id: "late",
-      state: "SNOOZED",
       snoozeUntil: epochToIso(now + 2000),
       modifiedAt: 200,
     });

@@ -21,7 +21,7 @@ import { formatSnoozeTime } from "../utils/format";
 import { useModifierHeld } from "../utils/kbd-modifier";
 import { useTodos } from "../utils/store";
 import type { Todo } from "../utils/todo";
-import { isoToEpoch } from "../utils/todo";
+import { isoToEpoch, isSnoozed } from "../utils/todo";
 import SnoozeMenu from "./snooze-menu";
 
 function Hint({
@@ -49,6 +49,7 @@ function Hint({
 
 export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const {
+    now,
     focusId,
     edit,
     markDone,
@@ -120,10 +121,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   }, [focused]);
 
   const isDone = todo.state === "DONE";
-  const isActivelySnoozed =
-    todo.state === "SNOOZED" &&
-    todo.snoozeUntil !== null &&
-    isoToEpoch(todo.snoozeUntil) > Date.now();
+  const isActivelySnoozed = isSnoozed(todo, now);
   const wasUnsnoozed =
     !isDone && !isActivelySnoozed && todo.snoozeUntil !== null;
   const showPin = !isDone;

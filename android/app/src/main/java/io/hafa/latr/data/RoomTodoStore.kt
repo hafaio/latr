@@ -1,6 +1,5 @@
 package io.hafa.latr.data
 
-import io.hafa.latr.util.LocalDateTimeUtil
 import kotlinx.coroutines.flow.Flow
 
 class RoomTodoStore(private val dao: TodoDao) : TodoStore {
@@ -11,12 +10,6 @@ class RoomTodoStore(private val dao: TodoDao) : TodoStore {
     override suspend fun insert(todo: Todo) = dao.insert(todo)
 
     override suspend fun update(todo: Todo) = dao.update(todo)
-
-    override suspend fun unsnooze(todo: Todo) {
-        val snoozeMillis = todo.snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) }
-            ?: System.currentTimeMillis()
-        dao.update(todo.copy(state = TodoState.ACTIVE, modifiedAt = snoozeMillis))
-    }
 
     override suspend fun delete(todo: Todo) = dao.delete(todo)
 
@@ -31,7 +24,4 @@ class RoomTodoStore(private val dao: TodoDao) : TodoStore {
     override suspend fun deleteEmptyTodosExcept(exceptId: String) {
         dao.deleteEmptyTodosExcept(exceptId)
     }
-
-    override suspend fun getExpiredSnoozed(nowIso: String): List<Todo> =
-        dao.getExpiredSnoozed(nowIso)
 }

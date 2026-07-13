@@ -6,7 +6,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import java.util.UUID
 
-enum class TodoState { ACTIVE, DONE, SNOOZED }
+enum class TodoState { ACTIVE, DONE }
 
 @Entity(tableName = "todos")
 data class Todo(
@@ -33,6 +33,10 @@ data class Todo(
     )
 
     companion object {
+        /** Legacy rows carry state "SNOOZED"; snoozeUntil is the only snooze marker now. */
+        fun readState(value: String?): TodoState =
+            if (value == TodoState.DONE.name) TodoState.DONE else TodoState.ACTIVE
+
         fun fromMap(id: String, data: Map<String, Any?>): Todo {
             val modifiedAt = data["modifiedAt"] as? Long ?: System.currentTimeMillis()
             return Todo(
@@ -41,9 +45,7 @@ data class Todo(
                 createdAt = data["createdAt"] as? Long ?: System.currentTimeMillis(),
                 modifiedAt = modifiedAt,
                 serverModifiedAt = data["serverModifiedAt"] as? Timestamp,
-                state = (data["state"] as? String)
-                    ?.let { name -> TodoState.entries.firstOrNull { it.name == name } }
-                    ?: TodoState.ACTIVE,
+                state = readState(data["state"] as? String),
                 snoozeUntil = data["snoozeUntil"] as? String,
                 pinned = data["pinned"] as? Boolean ?: false,
                 deleted = data["deleted"] as? Boolean ?: false,
