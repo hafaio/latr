@@ -131,12 +131,15 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
     else markDone(todo.id);
   }
 
-  // The pin displaces the state dot only on an active row — the one row whose
-  // order the pin actually changes. Done/snoozed keep their own state icon.
+  // Pinned displaces the state dot only on an active row; elsewhere it just tints it.
   const primaryIcon = isDone ? (
-    <FaCheckCircle className="text-done text-base" />
+    <FaCheckCircle
+      className={`text-base ${todo.pinned ? "text-accent" : "text-done"}`}
+    />
   ) : isActivelySnoozed ? (
-    <FaClock className="text-snooze text-base" />
+    <FaClock
+      className={`text-base ${todo.pinned ? "text-accent" : "text-snooze"}`}
+    />
   ) : todo.pinned ? (
     <BsPinAngle className="text-accent text-base" />
   ) : wasUnsnoozed ? (
