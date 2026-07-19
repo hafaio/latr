@@ -190,10 +190,18 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       const store = holder.getStore();
       const existing = store.getTodos().find((t) => t.id === id);
       if (!existing || existing.text === text) return;
-      // An unsnoozed row drops its was-snoozed marker; a snoozed or done one keeps it.
-      const updated: Todo = matchesFilter(existing, "ACTIVE", Date.now())
-        ? { ...existing, text, snoozeUntil: null }
-        : { ...existing, text };
+      // An unsnoozed row drops its was-snoozed marker; pin modifiedAt to the
+      // old unsnooze time so dropping snoozeUntil doesn't sink the row to a
+      // stale modifiedAt. A snoozed or done one keeps the marker.
+      const updated: Todo =
+        matchesFilter(existing, "ACTIVE", Date.now()) && existing.snoozeUntil
+          ? {
+              ...existing,
+              text,
+              snoozeUntil: null,
+              modifiedAt: isoToEpoch(existing.snoozeUntil),
+            }
+          : { ...existing, text };
       void store.update(updated);
     },
     [holder],

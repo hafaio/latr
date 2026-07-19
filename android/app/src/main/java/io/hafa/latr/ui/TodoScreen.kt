@@ -1023,8 +1023,15 @@ fun TodoItem(
                                 // clearing it on a snoozed row would unsnooze it.
                                 val plainlyActive =
                                     currentTodo.state != TodoState.DONE && !currentSnoozed
-                                val edited = if (plainlyActive) {
-                                    currentTodo.copy(text = newValue.text, snoozeUntil = null)
+                                val wasSnoozeUntil = currentTodo.snoozeUntil
+                                val edited = if (plainlyActive && wasSnoozeUntil != null) {
+                                    // Pin modifiedAt to the old unsnooze time so dropping
+                                    // snoozeUntil doesn't sink the row to a stale modifiedAt.
+                                    currentTodo.copy(
+                                        text = newValue.text,
+                                        snoozeUntil = null,
+                                        modifiedAt = LocalDateTimeUtil.toEpochMillis(wasSnoozeUntil)
+                                    )
                                 } else {
                                     currentTodo.copy(text = newValue.text)
                                 }
