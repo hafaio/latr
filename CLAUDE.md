@@ -66,7 +66,7 @@ Track features and behavior here. When making changes, verify existing behavior 
 - Corrupt rows from that era (`state: "ACTIVE"` with a future `snoozeUntil`) **heal themselves** under the derived rule: they simply read as snoozed until their time passes. No repair migration was needed. Rows whose `DONE` was overwritten are unrecoverable (the state was destroyed) and must be re-completed by hand.
 
 ### Sort Order
-- Active: by `activeSortKey` (`utils/todo.ts`) — snoozeUntil (unsnoozed, most recently unsnoozed first) else modifiedAt — descending, with modifiedAt as the tiebreak. The **web** sort ignores `pinned` (pinning is a grouping concern, below); **Android** keeps pinned-first in its flat list.
+- Active: by `activeSortKey` (`utils/todo.ts`) — snoozeUntil (unsnoozed, most recently unsnoozed first) else modifiedAt — descending. Every filter's final tie-break is `id` (a stable uuid) so equal-time rows never flip-flop. The **web** sort ignores `pinned` (pinning is a grouping concern, below); **Android** keeps pinned-first in its flat list.
 - Snoozed: by snooze time ascending
 - Done, All: by modifiedAt descending
 
