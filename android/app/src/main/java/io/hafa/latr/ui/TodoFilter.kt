@@ -69,13 +69,8 @@ fun List<Todo>.filterAndSort(
                     else -> -todo.modifiedAt
                 }
             }
-            // Secondary key for ACTIVE: among rows with the same primary key
-            // (e.g. unsnoozed rows sharing an unsnooze time) the most recently
-            // modified sorts first. Constant for other filters, so their order
-            // is unchanged.
-            .thenByDescending { todo ->
-                if (filter == StatusFilter.ACTIVE) todo.modifiedAt else 0L
-            }
+            // Final tie-break: id keeps equal-time rows from flip-flopping.
+            .thenBy { it.id }
     )
     .let { sorted ->
         if (searchQuery.isBlank()) {
