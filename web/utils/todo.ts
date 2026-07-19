@@ -129,7 +129,8 @@ export function sortForFilter(todos: readonly Todo[], filter: Filter): Todo[] {
       copy.sort((a, b) => {
         const ax = a.snoozeUntil ? isoToEpoch(a.snoozeUntil) : 0;
         const bx = b.snoozeUntil ? isoToEpoch(b.snoozeUntil) : 0;
-        return ax - bx;
+        if (ax !== bx) return ax - bx;
+        return a.id.localeCompare(b.id);
       });
       return copy;
     case "ACTIVE":
@@ -137,12 +138,15 @@ export function sortForFilter(todos: readonly Todo[], filter: Filter): Todo[] {
         const bx = activeSortKey(b);
         const ax = activeSortKey(a);
         if (bx !== ax) return bx - ax;
-        return b.modifiedAt - a.modifiedAt;
+        return a.id.localeCompare(b.id);
       });
       return copy;
     case "DONE":
     case "ALL":
-      copy.sort((a, b) => b.modifiedAt - a.modifiedAt);
+      copy.sort((a, b) => {
+        if (b.modifiedAt !== a.modifiedAt) return b.modifiedAt - a.modifiedAt;
+        return a.id.localeCompare(b.id);
+      });
       return copy;
   }
 }
