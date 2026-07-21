@@ -166,14 +166,7 @@ private fun StatusFilter.iconTint() = when (this) {
     StatusFilter.DONE -> MaterialTheme.colorScheme.primary
 }
 
-/**
- * Horizontal-drag handler that flips the active filter by paging
- * [pagerState]. Each invocation gets its own remembered drag-start page so
- * multiple call sites (bottom bar, list area) don't share state.
- *
- * Drags that begin within [EDGE_REJECT_DP] of either horizontal edge are
- * ignored so the OS back-gesture wins in that strip.
- */
+/** Horizontal drag pages [pagerState] to flip the filter; drags within [EDGE_REJECT_DP] of an edge defer to the OS back-gesture. */
 @Composable
 private fun Modifier.filterSwipe(
     pagerState: PagerState,
@@ -425,9 +418,7 @@ fun TodoScreen(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TodoScreenContent(
-    // `null` means the first snapshot hasn't arrived yet (cold start) — render
-    // a spinner rather than a false "no todos". A non-null empty list is a
-    // genuine empty state.
+    // null = pre-first-snapshot (show spinner); a non-null empty list is a genuine empty state.
     todos: List<Todo>?,
     focusId: String? = null,
     fastCreationId: String? = null,
@@ -655,9 +646,7 @@ fun TodoScreenContent(
                         }
                 ) {
                     if (todos == null) {
-                        // First snapshot hasn't arrived yet (cold start, store
-                        // still loading from cache/network). Show a spinner so
-                        // we don't flash a false "no todos" before we know.
+                        // Pre-first-snapshot: spinner, not a false "no todos".
                         CircularProgressIndicator(Modifier.align(Alignment.Center))
                     } else if (pageTodos.isEmpty()) {
                         val message = if (searchQuery.isBlank()) {
@@ -881,10 +870,7 @@ fun TodoItem(
     CompositionLocalProvider(LocalViewConfiguration provides swipeViewConfig) {
     SwipeToDismissBox(
         state = dismissState,
-        // Consume pointer events whose down-position is in the screen-edge
-        // strip so the inner anchored-draggable never starts a row dismiss
-        // there. The row stays visually full-width; only the gesture is
-        // gated, leaving room for the OS back gesture to win.
+        // Consume downs in the edge strip so a row-dismiss never starts there (leaves the OS back gesture room).
         modifier = modifier.pointerInput(Unit) {
             val edgePx = EDGE_REJECT_DP.dp.toPx()
             awaitEachGesture {

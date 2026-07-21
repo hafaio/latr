@@ -11,11 +11,7 @@ import {
 
 const Ctx = createContext(false);
 
-/**
- * Tracks whether the platform command modifier (⌘ on macOS, Ctrl elsewhere)
- * is currently held down. Used to reveal letter hints over row actions and
- * to gate shortcut dispatch.
- */
+/** Tracks whether the platform command modifier (⌘/Ctrl) is held. */
 export function ModifierProvider({
   children,
 }: {

@@ -24,16 +24,7 @@ import {
   type TodoStore,
 } from "./todo-store";
 
-/**
- * Owns the single live [TodoStore] and swaps it at the auth boundary.
- *
- * The auth listener only swaps stores — it does not merge or snapshot.
- * Merging (local → Firestore) and snapshotting (Firestore → local) happen
- * exclusively on the explicit user-initiated entry points [signIn],
- * [signOut], and [deleteAccount]. A plain page-load-while-signed-in does no
- * merge: Firestore is already the source of truth, its persistent local
- * cache fires the first listener tick near-instantly.
- */
+/** Owns the live [TodoStore]; swaps it at the auth boundary. Merge/snapshot happen only on [signIn]/[signOut]/[deleteAccount]. */
 export class TodoStoreHolder {
   private localStore = new LocalTodoStore();
   private firestoreStore: FirestoreTodoStore | null = null;
@@ -80,13 +71,7 @@ export class TodoStoreHolder {
     this.localStore.hydrate();
   }
 
-  /**
-   * User-initiated sign-in: pop the Google flow, then push any offline
-   * local edits into Firestore (respecting legacy tombstones). The auth
-   * listener separately swaps the active store on the resulting auth-state
-   * change. If auth is already signed in (e.g. retry after a partial
-   * sign-in), the merge runs against the current uid.
-   */
+  /** Sign in via Google, then push offline local edits into Firestore. */
   async signIn(): Promise<void> {
     if (!firebaseConfigured()) {
       throw new Error("firebase not configured");
@@ -109,20 +94,13 @@ export class TodoStoreHolder {
     await this.mergeLocalIntoFirestore(uid);
   }
 
-  /**
-   * User-initiated sign-out: preserves the current signed-in todos locally
-   * by copying them into the local store before revoking auth.
-   */
+  /** Sign out; copies todos into the local store first to preserve them. */
   async signOut(): Promise<void> {
     await this.snapshotFirestoreIntoLocal();
     await auth().signOut();
   }
 
-  /**
-   * User-initiated delete-account: copies current state into the local store
-   * (so local todos are preserved), wipes the remote collection, then
-   * deletes the Firebase auth user (which triggers sign-out).
-   */
+  /** Copy state locally, wipe remote, then delete the auth user (triggers sign-out). */
   async deleteAccount(): Promise<void> {
     const user = this.user;
     if (!user) return;

@@ -61,12 +61,7 @@ class AuthManager(
         auth.signOut()
     }
 
-    /**
-     * Delete the currently signed-in Firebase Auth user. This also triggers a
-     * sign-out via the auth state listener. The caller is responsible for
-     * cleaning up any remote data (Firestore, etc.) BEFORE calling this — once
-     * the user is deleted, Firestore writes will be rejected.
-     */
+    /** Delete the current Firebase Auth user (also triggers sign-out). Clean up remote data BEFORE calling. */
     suspend fun deleteCurrentUser(): Result<Unit> = runCatching {
         auth.currentUser?.delete()?.await()
         Unit

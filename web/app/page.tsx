@@ -48,13 +48,8 @@ export default function Page(): ReactElement {
   }, [setFilter]);
 
   useEffect(() => {
-    // ⌘/Ctrl + key shortcuts on the focused row (fallback: hovered row).
-    // Keys match data-action on TodoRow buttons; missing buttons no-op.
-    // Dispatch on keydown so the browser default (bookmark / save) is
-    // preempted by preventDefault; e.repeat filters OS auto-repeat so
-    // holding the key cascades no further, but a re-press without
-    // releasing ⌘ still fires a fresh keydown with e.repeat=false.
-    // Backspace (not X) is the delete shortcut so ⌘+X stays as cut.
+    // ⌘/Ctrl+key dispatches the focused (or hovered) row's data-action on keydown; e.repeat filters auto-repeat.
+    // Backspace (not X) so ⌘+X stays as cut.
     const SHORTCUTS: Record<string, string> = {
       d: "primary",
       s: "snooze",

@@ -15,19 +15,9 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.tasks.await
 
 /**
- * Reads and writes go straight through Firestore (with its persistent local
- * cache). The snapshot listener is the only source of truth — no Room
- * intermediate to reconcile, so echoes of our own writes cannot clobber
- * in-flight typing the way they could in the two-store model.
- *
- * A delete writes a tombstone; the listener filters them out server-side.
- *
- * Writes do **not** await the returned Task: while offline that Task stays
- * pending until the server acks, which would suspend the coroutine
- * indefinitely and block subsequent steps in the caller's flow (e.g. setting
- * focus on a freshly inserted todo). The local cache write fires the
- * snapshot listener regardless, and persistentLocalCache replays the queued
- * write to the server once the connection is back. Failures are logged.
+ * Firestore-backed store; the snapshot listener is the sole source of truth.
+ * Writes are fire-and-forget (never await the Task) so an offline write can't
+ * suspend the caller; the persistent cache replays it on reconnect.
  */
 class FirestoreTodoStore(
     private val firestore: FirebaseFirestore,
@@ -112,8 +102,7 @@ class FirestoreTodoStore(
         batch.commit().addOnFailureListener { Log.w(TAG, "restoreMany failed", it) }
     }
 
-    // set/merge, not update: update rejects a missing doc, which would abort the
-    // whole clearAllDone batch. modifiedAt so the merge can last-write-wins it.
+    // set/merge (not update) so a missing doc doesn't abort the batch.
     private fun tombstone(): Map<String, Any> = mapOf(
         "deleted" to true,
         "modifiedAt" to System.currentTimeMillis(),
