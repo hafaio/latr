@@ -22,10 +22,7 @@ class TodoViewModel(
     private val storeHolder: TodoStoreHolder,
     private val userPreferences: UserPreferences
 ) : ViewModel() {
-    // `null` until the live store delivers its first snapshot. On a signed-in
-    // cold start the store swaps to Firestore and its listener takes a beat to
-    // fire even from the local cache; surfacing null lets the UI show a spinner
-    // instead of a false "no todos" empty state during that window.
+    // null until the first snapshot; lets the UI show a spinner, not a false empty state.
     val todos: StateFlow<List<Todo>?> = storeHolder.store
         .flatMapLatest { it.observeAll() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -45,9 +42,7 @@ class TodoViewModel(
     private val _eveningMinutes = MutableStateFlow(userPreferences.eveningMinutes)
     val eveningMinutes: StateFlow<Int> = _eveningMinutes
 
-    // A single, most-recent-wins undo buffer. Delete restores via re-insert
-    // (the rows are gone); Snooze and Complete restore via update (the row still
-    // exists, just needs its prior state/snoozeUntil/modifiedAt put back).
+    // Most-recent-wins undo: Delete restores via re-insert, Snooze/Complete via update.
     private sealed interface UndoableAction {
         data class Delete(val todos: List<Todo>) : UndoableAction
         data class Snooze(val previous: Todo) : UndoableAction
@@ -56,10 +51,7 @@ class TodoViewModel(
 
     private var _lastAction: UndoableAction? = null
 
-    // The VM owns both the undo buffer and its 5s lifetime, so delete and
-    // snooze share one source of truth — the UI just renders `undoVisible` and
-    // reports the events (swipe-delete, clear-all, snooze, filter change) that
-    // arm or dismiss it. No per-action UI flag or timer.
+    // VM owns the undo buffer + its 5s lifetime; the UI just renders undoVisible.
     private val _undoVisible = MutableStateFlow(false)
     val undoVisible: StateFlow<Boolean> = _undoVisible
 
@@ -101,10 +93,7 @@ class TodoViewModel(
 
     fun createTodo() {
         dismissUndo()
-        // Insert + focus first so the new row appears immediately; the empty-
-        // cleanup query (Firestore `.get().await()`) runs in the background.
-        // Otherwise a cold-boot `get` can block focus by seconds while it
-        // waits on auth/network.
+        // Insert + focus first; the empty-cleanup query runs in the background so a cold-boot get can't block focus.
         val todo = Todo()
         viewModelScope.launch {
             val store = currentStore()
@@ -150,8 +139,7 @@ class TodoViewModel(
     }
 
     fun snoozeUndoable(todo: Todo, snoozeUntil: String) {
-        // Buffer the pre-snooze snapshot so undo can restore its prior
-        // snoozeUntil/modifiedAt (and thus its prior sort position).
+        // Buffer the pre-snooze snapshot so undo restores its prior sort position.
         _lastAction = UndoableAction.Snooze(todo)
         armUndo()
         updateTodo(todo.copy(snoozeUntil = snoozeUntil), touchModifiedAt = true)
@@ -214,8 +202,7 @@ class TodoViewModel(
                     }
                 }
             is UndoableAction.Snooze ->
-                // Re-apply the prior snapshot verbatim (no modifiedAt touch) so
-                // the row lands back in its previous sort position.
+                // Re-apply the snapshot verbatim (no modifiedAt touch) to keep sort position.
                 viewModelScope.launch {
                     currentStore().update(action.previous)
                 }

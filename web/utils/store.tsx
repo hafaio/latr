@@ -23,9 +23,7 @@ import {
   withPinToggled,
 } from "./todo";
 
-// A single, most-recent-wins undo buffer. "delete" restores via re-insert
-// (the rows are gone); "snooze" and "complete" restore via update (the rows
-// still exist, just need their prior state/snoozeUntil/modifiedAt put back).
+// Most-recent-wins undo: "delete" restores via re-insert, "snooze"/"complete" via update.
 export type UndoKind = "delete" | "snooze" | "complete";
 export type UndoEntry = { kind: UndoKind; todos: Todo[] };
 
@@ -252,8 +250,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
         snoozeUntil: epochToIso(epoch),
         modifiedAt: Date.now(),
       });
-      // Buffer the pre-snooze snapshot so undo can restore its prior
-      // state/snoozeUntil/modifiedAt (and thus its prior sort position).
+      // Buffer the pre-snooze snapshot so undo restores its prior sort position.
       dispatch({
         type: "setUndo",
         entry: { kind: "snooze", todos: [existing] },

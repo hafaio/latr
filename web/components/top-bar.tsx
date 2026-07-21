@@ -21,10 +21,7 @@ export default function TopBar({
   const { syncing } = useTodos();
   const online = useOnlineStatus();
 
-  // Delay-show: `syncing` (Firestore fromCache) blips on/off around writes and
-  // metadata changes, which would flicker the icon. Only surface it once it has
-  // been syncing continuously for a beat; hide immediately when it settles, so
-  // transient blips never flash the spinner.
+  // Delay-show: only surface the spinner after syncing stays true for a beat, so fromCache blips don't flicker it.
   const [showSyncing, setShowSyncing] = useState(false);
   useEffect(() => {
     if (!syncing) {

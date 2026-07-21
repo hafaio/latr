@@ -25,10 +25,7 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Minimal in-memory cache keyed by URL so we don't re-download on every
- * composition. Profile photos are small and rare — no eviction needed.
- */
+/** In-memory URL→photo cache to avoid re-downloads. */
 private val photoCache = mutableMapOf<String, ImageBitmap>()
 
 @Composable

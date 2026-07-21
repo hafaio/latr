@@ -19,22 +19,7 @@ fun Todo.isSnoozed(nowMillis: Long): Boolean =
     state != TodoState.DONE &&
         snoozeUntil?.let { LocalDateTimeUtil.toEpochMillis(it) > nowMillis } == true
 
-/**
- * Pure filter + sort + search over a todo list. Extracted from the Compose
- * layer so the logic can be unit-tested without instrumentation.
- *
- * Sort keys by filter:
- *  - ACTIVE:  pinned todos first, then descending by snoozeUntil (if set)
- *             else modifiedAt (so recently-unsnoozed items surface to the top).
- *  - SNOOZED: ascending by snoozeUntil (soonest first).
- *  - DONE / ALL: descending by modifiedAt.
- *
- * Pinning only floats items in the ACTIVE list; every other filter keeps its
- * own ordering (a time-ordered view shouldn't be reshuffled by a pin).
- *
- * When a non-blank searchQuery is supplied the result is re-ranked by the
- * number of word-boundary prefix matches across whitespace-split terms.
- */
+/** Pure filter+sort+search; ACTIVE floats pinned then sorts by snooze/modified, others by time. A query re-ranks by word-boundary prefix matches. */
 fun List<Todo>.filterAndSort(
     filter: StatusFilter,
     searchQuery: String,

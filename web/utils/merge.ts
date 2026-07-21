@@ -7,12 +7,7 @@ export type MergePlan = {
   toDropLocalIds: string[];
 };
 
-/**
- * Decide what the sign-in merge writes. A local row (or tombstone) newer than
- * its remote twin is pushed; a remote tombstone kills the local row.
- *
- * `remote` must be the *unfiltered* collection, tombstones included.
- */
+/** Plan the sign-in merge: push local rows newer than remote; remote tombstones kill local. `remote` must be unfiltered. */
 export function planMerge(
   local: readonly Todo[],
   remote: ReadonlyMap<string, Todo>,
