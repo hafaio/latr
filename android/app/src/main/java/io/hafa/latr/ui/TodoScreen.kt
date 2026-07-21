@@ -93,6 +93,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -115,6 +116,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -842,12 +845,23 @@ fun TodoItem(
     val enterEdit: (Int) -> Unit = { caret ->
         val full = currentTodo.text
         fieldValue = TextFieldValue(full, TextRange(caret.coerceIn(0, full.length)))
+        // Re-arm: the field's initial unfocused callback must not read as a prior-session blur.
+        hasFocused = false
         editing = true
     }
 
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.4f },
     )
+
+    // Inflate the row's horizontal touch-slop so a mostly-vertical drag trips the
+    // list's scroll slop first; the box only claims drags steeper than ~horizontal.
+    val baseViewConfig = LocalViewConfiguration.current
+    val swipeViewConfig = remember(baseViewConfig) {
+        object : ViewConfiguration by baseViewConfig {
+            override val touchSlop: Float get() = baseViewConfig.touchSlop * 2.5f
+        }
+    }
 
     // Programmatic focus (new todo, scroll-to-focus): open the editor, caret at end.
     LaunchedEffect(shouldRequestFocus) {
@@ -864,6 +878,7 @@ fun TodoItem(
         }
     }
 
+    CompositionLocalProvider(LocalViewConfiguration provides swipeViewConfig) {
     SwipeToDismissBox(
         state = dismissState,
         // Consume pointer events whose down-position is in the screen-edge
@@ -961,6 +976,8 @@ fun TodoItem(
         },
         enableDismissFromStartToEnd = true
     ) {
+        // Restore normal slop inside the row so taps/long-press aren't dulled.
+        CompositionLocalProvider(LocalViewConfiguration provides baseViewConfig) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -1114,6 +1131,8 @@ fun TodoItem(
                 }
             }
         }
+        }
+    }
     }
 }
 
