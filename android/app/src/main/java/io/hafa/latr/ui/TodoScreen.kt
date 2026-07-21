@@ -17,7 +17,6 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -211,6 +210,15 @@ private fun Modifier.filterSwipe(
 }
 
 private const val EDGE_REJECT_DP = 24
+
+// The horizontal swipe (row dismiss and filter pager) needs this multiple of the
+// base touch-slop, so a drag must be clearly horizontal to beat the list's scroll.
+private const val SWIPE_SLOP_MULTIPLIER = 2f
+
+private fun inflatedSlop(base: ViewConfiguration): ViewConfiguration =
+    object : ViewConfiguration by base {
+        override val touchSlop: Float get() = base.touchSlop * SWIPE_SLOP_MULTIPLIER
+    }
 
 @Composable
 fun FilterIconButton(
@@ -609,6 +617,11 @@ fun TodoScreenContent(
             }
         }
     ) { innerPadding ->
+        // filterSwipe reads the inflated slop; the pager's list content is restored to base
+        // below, so vertical scroll stays responsive while paging needs a clearly horizontal drag.
+        val baseSlop = LocalViewConfiguration.current
+        val pagerSlop = remember(baseSlop) { inflatedSlop(baseSlop) }
+        CompositionLocalProvider(LocalViewConfiguration provides pagerSlop) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -616,6 +629,7 @@ fun TodoScreenContent(
                 .statusBarsPadding()
                 .filterSwipe(pagerState, scope)
         ) {
+            CompositionLocalProvider(LocalViewConfiguration provides baseSlop) {
             HorizontalPager(
                 state = pagerState,
                 userScrollEnabled = false,
@@ -776,6 +790,8 @@ fun TodoScreenContent(
                     }
                 }
             }
+            }
+        }
         }
     }
 }
@@ -811,6 +827,8 @@ fun TodoItem(
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     var hasFocused by remember { mutableStateOf(false) }
+    // Reset each time the editor opens; gates the blur handler so the field's initial unfocused callback isn't read as a blur.
+    var focusedThisSession by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // rememberUpdatedState: the gesture blocks are keyed on todo.id, so they'd otherwise capture stale closures.
@@ -834,28 +852,23 @@ fun TodoItem(
     val enterEdit: (Int) -> Unit = { caret ->
         val full = currentTodo.text
         fieldValue = TextFieldValue(full, TextRange(caret.coerceIn(0, full.length)))
-        // Re-arm: the field's initial unfocused callback must not read as a prior-session blur.
-        hasFocused = false
+        focusedThisSession = false
         editing = true
     }
 
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { totalDistance -> totalDistance * 0.4f },
     )
-
-    // Inflate the row's horizontal touch-slop so a mostly-vertical drag trips the
-    // list's scroll slop first; the box only claims drags steeper than ~horizontal.
+    // The row swipe reads this inflated slop; base is restored inside the row for taps/text.
     val baseViewConfig = LocalViewConfiguration.current
-    val swipeViewConfig = remember(baseViewConfig) {
-        object : ViewConfiguration by baseViewConfig {
-            override val touchSlop: Float get() = baseViewConfig.touchSlop * 2.5f
-        }
-    }
+    val swipeViewConfig = remember(baseViewConfig) { inflatedSlop(baseViewConfig) }
 
     // Programmatic focus (new todo, scroll-to-focus): open the editor, caret at end.
+    // !editing so it never clobbers a tap-opened editor's caret with end.
     LaunchedEffect(shouldRequestFocus) {
-        if (shouldRequestFocus && !hasFocused) {
+        if (shouldRequestFocus && !hasFocused && !editing) {
             fieldValue = TextFieldValue(todo.text, TextRange(todo.text.length))
+            focusedThisSession = false
             editing = true
         }
     }
@@ -870,7 +883,7 @@ fun TodoItem(
     CompositionLocalProvider(LocalViewConfiguration provides swipeViewConfig) {
     SwipeToDismissBox(
         state = dismissState,
-        // Consume downs in the edge strip so a row-dismiss never starts there (leaves the OS back gesture room).
+        // Consume the whole gesture in the edge strip so a row-dismiss never starts there (leaves the OS back gesture room).
         modifier = modifier.pointerInput(Unit) {
             val edgePx = EDGE_REJECT_DP.dp.toPx()
             awaitEachGesture {
@@ -962,7 +975,7 @@ fun TodoItem(
         },
         enableDismissFromStartToEnd = true
     ) {
-        // Restore normal slop inside the row so taps/long-press aren't dulled.
+        // Restore base slop inside the row so taps/long-press aren't dulled by the swipe's inflated slop.
         CompositionLocalProvider(LocalViewConfiguration provides baseViewConfig) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1047,8 +1060,9 @@ fun TodoItem(
                             .onFocusChanged { focusState ->
                                 if (focusState.isFocused) {
                                     hasFocused = true
+                                    focusedThisSession = true
                                     onFocused(todo.id)
-                                } else if (hasFocused) {
+                                } else if (focusedThisSession) {
                                     editing = false
                                     onBlurred(todo.id)
                                     if (currentFieldText.isEmpty()) {
@@ -1088,6 +1102,9 @@ fun TodoItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .pointerInput(todo.id) {
+                                // Passive Initial-pass observer: never reads isConsumed (the parent
+                                // clickable consumes the down, which would falsely read as cancel),
+                                // only drops the caret if the gesture turns into a drag (slop exceeded).
                                 awaitEachGesture {
                                     val down = awaitFirstDown(
                                         requireUnconsumed = false,
@@ -1095,8 +1112,17 @@ fun TodoItem(
                                     )
                                     caretFromTap =
                                         textLayoutResult?.getOffsetForPosition(down.position)
-                                    // Cancelled (became a scroll/swipe): drop the caret so a later off-text tap falls back to end.
-                                    if (waitForUpOrCancellation() == null) caretFromTap = null
+                                    val slop = viewConfiguration.touchSlop
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        val change =
+                                            event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        if ((change.position - down.position).getDistance() > slop) {
+                                            caretFromTap = null
+                                            break
+                                        }
+                                    }
                                 }
                             }
                     )
