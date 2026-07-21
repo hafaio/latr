@@ -11,11 +11,7 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/**
- * Whether the browser believes it has a network connection. The snapshot reads
- * navigator.onLine live (events are just change signals), so event ordering
- * can't leave a stale value. SSR snapshot is true.
- */
+/** Live navigator.onLine (events are just change signals); SSR snapshot is true. */
 export function useOnlineStatus(): boolean {
   return useSyncExternalStore(
     subscribe,

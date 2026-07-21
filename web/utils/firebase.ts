@@ -9,10 +9,7 @@ import {
   persistentLocalCache,
 } from "firebase/firestore";
 
-// Firebase web config for the `hafaio-latr` project. These values ship in the
-// client bundle by design — security is enforced by Firestore rules
-// (firebase/firestore.rules). When forking, replace these with your own
-// project's values; the web SDK throws on init if `appId` is left blank.
+// Public Firebase web config; access is enforced by Firestore rules. Replace when forking.
 const firebaseConfig = {
   apiKey: "AIzaSyBmNn_yskTFD7Fk81mfSg3XYwSP-gMWRKI",
   authDomain: "hafaio-latr.firebaseapp.com",

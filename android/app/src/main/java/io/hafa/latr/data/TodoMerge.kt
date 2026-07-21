@@ -6,12 +6,7 @@ data class MergePlan(
     val toDropLocalIds: List<String>,
 )
 
-/**
- * Decide what the sign-in merge writes. A local row (or tombstone) newer than
- * its remote twin is pushed; a remote tombstone kills the local row.
- *
- * [remote] must be the *unfiltered* collection, tombstones included.
- */
+/** Plan the sign-in merge: push local rows newer than remote; remote tombstones kill local. [remote] must be unfiltered. */
 fun planMerge(local: List<Todo>, remote: Map<String, Todo>): MergePlan {
     val toPush = mutableListOf<Todo>()
     val toDropLocalIds = mutableListOf<String>()

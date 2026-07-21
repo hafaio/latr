@@ -93,12 +93,7 @@ export class LocalTodoStore extends BaseTodoStore {
     return false;
   }
 
-  /**
-   * Read from localStorage. Deliberately not called from the constructor so
-   * that the server and initial-client renders agree on an empty list —
-   * `TodoProvider` triggers this from a mount effect to keep React hydration
-   * happy.
-   */
+  /** Read from localStorage. Not called from the constructor so SSR and first client render agree (hydration). */
   hydrate(): void {
     try {
       const raw =
@@ -216,14 +211,7 @@ export class LocalTodoStore extends BaseTodoStore {
   }
 }
 
-/**
- * Reads and writes go straight through Firestore (with its persistent local
- * cache). The snapshot listener is the only source of truth — no localStorage
- * intermediate to reconcile, so echoes of our own writes cannot clobber
- * in-flight state the way they could in the two-store model.
- *
- * A delete writes a tombstone; the listener filters them out server-side.
- */
+/** Firestore-backed store; the snapshot listener is the sole source of truth. Deletes write tombstones, filtered out server-side. */
 export class FirestoreTodoStore extends BaseTodoStore {
   private readonly col: CollectionReference;
   private unsubscribe: (() => void) | null = null;
@@ -244,10 +232,7 @@ export class FirestoreTodoStore extends BaseTodoStore {
     return this.fromCache;
   }
 
-  /**
-   * Try immediately instead of waiting out the backoff — called on tab-wake /
-   * online, moments when a failed listener is likely to succeed again.
-   */
+  /** Retry now instead of waiting out backoff — called on tab-wake / online. */
   reattach(): void {
     if (this.retryTimer !== null) {
       clearTimeout(this.retryTimer);
@@ -405,8 +390,7 @@ export class FirestoreTodoStore extends BaseTodoStore {
     };
   }
 
-  // set/merge, not update: update rejects a missing doc, which would abort the
-  // whole clearAllDone batch. modifiedAt so the merge can last-write-wins it.
+  // set/merge (not update) so a missing doc doesn't abort the batch.
   private tombstone(): Record<string, unknown> {
     return {
       deleted: true,

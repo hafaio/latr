@@ -11,16 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-/**
- * Owns the single live [TodoStore] and swaps it at the auth boundary.
- *
- * The auth listener only swaps stores — it does not merge or snapshot.
- * Merging (Room → Firestore) and snapshotting (Firestore → Room) happen
- * exclusively on the explicit user-initiated entry points [signIn],
- * [signOut], and [deleteAccount]. A plain app-launch-while-signed-in does
- * no merge: Firestore is already the source of truth, its persistent local
- * cache fires the first listener tick near-instantly.
- */
+/** Owns the live [TodoStore]; swaps it at the auth boundary. Merge/snapshot happen only on [signIn]/[signOut]/[deleteAccount]. */
 class TodoStoreHolder(
     private val dao: TodoDao,
     private val authManager: AuthManager?,
@@ -66,12 +57,7 @@ class TodoStoreHolder(
         _store.value = roomStore
     }
 
-    /**
-     * User-initiated sign-in: push any offline Room edits into Firestore
-     * (respecting legacy tombstones from older clients), then let the auth
-     * state change swap the live store. If auth is already signed in the
-     * merge runs against the current user.
-     */
+    /** Sign in via Google, then push offline Room edits into Firestore. */
     suspend fun signIn(): Result<Unit> {
         val am = authManager ?: return Result.success(Unit)
         val user = am.signInWithGoogle().getOrElse { cause ->
@@ -84,20 +70,13 @@ class TodoStoreHolder(
             .map { }
     }
 
-    /**
-     * User-initiated sign-out: preserves the current signed-in todos locally
-     * by copying them into Room before revoking auth.
-     */
+    /** Sign out; copies todos into Room first to preserve them. */
     suspend fun signOut() {
         snapshotFirestoreIntoRoom()
         authManager?.signOut()
     }
 
-    /**
-     * User-initiated delete-account: copies current state into Room (so local
-     * todos are preserved), wipes the remote collection, then deletes the
-     * Firebase auth user (which triggers sign-out).
-     */
+    /** Copy state to Room, wipe remote, then delete the auth user (triggers sign-out). */
     suspend fun deleteAccount(): Result<Unit> {
         val am = authManager ?: return Result.success(Unit)
         // Reauth before wiping: a delete() that fails post-wipe could snapshot the empty remote over Room.
@@ -113,10 +92,7 @@ class TodoStoreHolder(
         return am.deleteCurrentUser()
     }
 
-    /**
-     * Copy the current Firestore state into Room. Call while still signed in
-     * — after sign-out the read would be rejected by security rules.
-     */
+    /** Copy Firestore state into Room; must run while still signed in. */
     private suspend fun snapshotFirestoreIntoRoom() {
         val leaving = currentFirestoreStore ?: return
         try {

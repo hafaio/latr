@@ -2,12 +2,7 @@ package io.hafa.latr.data
 
 import kotlinx.coroutines.flow.Flow
 
-/**
- * A single backend for todos. While signed in this is [FirestoreTodoStore];
- * while signed out it is [RoomTodoStore]. Swapping happens in
- * [TodoStoreHolder] at the auth boundary, so the rest of the app sees one
- * coherent data source and does not need to reconcile two stores per write.
- */
+/** Single todo backend: [FirestoreTodoStore] when signed in, [RoomTodoStore] when out; swapped by [TodoStoreHolder]. */
 interface TodoStore {
     fun observeAll(): Flow<List<Todo>>
     suspend fun snapshot(): List<Todo>

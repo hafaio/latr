@@ -76,10 +76,7 @@ export default function TodoRow({ todo }: { todo: Todo }): ReactElement {
   const rowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // While the input is focused, its value is owned by `text` and never
-  // overwritten by re-renders from the store. Without this, every snapshot
-  // listener tick would re-render the input with a fresh (equal-content)
-  // todo reference and occasionally jump the cursor to the end mid-edit.
+  // While focused, the input value is owned by `text` so snapshot re-renders can't jump the cursor mid-edit.
   useEffect(() => {
     if (!isFocused) setText(todo.text);
   }, [todo.text, isFocused]);
