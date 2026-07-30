@@ -607,6 +607,7 @@ fun TodoScreenContent(
                 FilledTonalIconButton(
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        searchQuery = ""
                         scope.launch { pagerState.animateScrollToPage(DEFAULT_TAB) }
                         onCreateTodo()
                     },
