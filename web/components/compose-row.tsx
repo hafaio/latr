@@ -6,7 +6,7 @@ import { isEditableTarget } from "../utils/keyboard";
 import { useTodos } from "../utils/store";
 
 export default function ComposeRow(): ReactElement {
-  const { create, setFocus, setFilter } = useTodos();
+  const { create, setFocus, setFilter, setSearch } = useTodos();
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,6 +30,7 @@ export default function ComposeRow(): ReactElement {
     create(text);
     setFocus(null);
     setFilter("ACTIVE");
+    setSearch("");
     setDraft("");
     // Keep focus on the compose input for fast-compose loop.
     requestAnimationFrame(() => inputRef.current?.focus());

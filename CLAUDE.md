@@ -89,6 +89,7 @@ Track features and behavior here. When making changes, verify existing behavior 
 - Android: pin is a **long-press anywhere on the row** (`onTogglePin` on `TodoItem`; the `onLongClick` of the same `Modifier.combinedClickable` that handles tap-to-edit, so it fires over the icon/padding *and* the text). There is **no trailing pin button** — the earlier always-visible button was too much visual noise. A pinned active row is identified by its **left icon**: a primary-tinted outline `PushPin` replaces the state dot. Long-press gives haptic feedback and is a no-op on a done row. Trade-off vs the old button: lower discoverability and weaker TalkBack affordance (the icon carries a "Pinned" contentDescription, but the toggle isn't a discrete a11y action). The swipe gestures are unchanged (`SwipeToDismissBox`: complete/delete + snooze/reactivate).
 
 ### Fast Todo Compose Loop
+- Adding a todo moves to the Active filter/pane *and* clears the search query, so the new row is always visible (Android FAB, web compose row submit)
 - When in fast compose mode with an empty todo, pressing Done should clear focus and delete the empty todo
 - IME action should be "Done" when the todo text is empty (not "Next")
 - IME action should be "Next" when the todo text is not empty (creates new todo)
