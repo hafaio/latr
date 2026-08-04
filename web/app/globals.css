@@ -20,7 +20,15 @@
     "Helvetica Neue", Arial, sans-serif;
 }
 
+/* Drives the UA-rendered parts of native controls (date/time picker icon and
+   popup), which no class can reach. */
+html {
+  color-scheme: light;
+}
+
 .dark {
+  color-scheme: dark;
+
   --color-bg: #191919;
   --color-surface: #1f1f1f;
   --color-surface-muted: #202020;
